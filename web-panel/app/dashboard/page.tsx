@@ -1,228 +1,255 @@
 "use client";
-import { useState } from "react";
 
-const NAV_ITEMS = [
-  {
-    id: "home",
-    label: "Ana Sayfa",
-    icon: (
-      <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-      </svg>
-    ),
-  },
-  {
-    id: "opportunities",
-    label: "Fırsatlarım",
-    icon: (
-      <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-      </svg>
-    ),
-  },
-  {
-    id: "settings",
-    label: "Ayarlar",
-    icon: (
-      <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-      </svg>
-    ),
-  },
-];
+import { useState, useEffect } from "react";
+import { createClient } from "../utils/supabase/client";
 
-const STATS = [
-  { label: "Aktif Fırsatlar", value: "0", color: "#f97316", bg: "#fff7ed" },
-  { label: "Bugünkü Satış", value: "₺0", color: "#1e3a5f", bg: "#eff6ff" },
-  { label: "Toplam Müşteri", value: "0", color: "#059669", bg: "#ecfdf5" },
-];
+const supabase = createClient();
+const TEST_SHOP_ID = "00000000-0000-0000-0000-000000000000";
+const SECRET_PIN = "2323";
 
-export default function Dashboard() {
-  const [active, setActive] = useState("opportunities");
+export default function DashboardPage() {
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [pinCode, setPinCode] = useState("");
+  const [pinError, setPinError] = useState(false);
+
+  const [opportunities, setOpportunities] = useState<any[]>([]);
+  // YENİLİK: Siparişleri (Kodları) tutacağımız state
+  const [orders, setOrders] = useState<any[]>([]);
+  
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  
+  const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "" });
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      // 1. Fırsatları çek
+      const { data: oppData, error: oppError } = await supabase.from("opportunities").select("*").order("olusturma_zamani", { ascending: false });
+      if (oppError) throw oppError;
+      setOpportunities(oppData || []);
+
+      // 2. YENİLİK: Sipariş (Kod) Listesini çek (Hangi fırsata ait olduğu bilgisiyle birlikte)
+      const { data: orderData, error: orderError } = await supabase.from("siparisler").select("*, opportunities(baslik)").order("olusturma_zamani", { ascending: false });
+      if (orderError) throw orderError;
+      setOrders(orderData || []);
+
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => {
+    if (isUnlocked) fetchData();
+  }, [isUnlocked]);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinCode === SECRET_PIN) {
+      setIsUnlocked(true);
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setPinCode("");
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = {
+      shop_id: TEST_SHOP_ID,
+      baslik: formData.baslik,
+      normal_fiyat: parseFloat(formData.normal_fiyat),
+      indirimli_fiyat: parseFloat(formData.indirimli_fiyat),
+      toplam_stok: parseInt(formData.stok),
+      kalan_stok: parseInt(formData.stok),
+      foto_url: formData.foto_url,
+      bitis_zamani: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      aktif_mi: true
+    };
+
+    try {
+      if (editingId) {
+        const { error } = await supabase.from("opportunities").update(payload).eq("id", editingId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("opportunities").insert([payload]);
+        if (error) throw error;
+      }
+      setIsModalOpen(false);
+      setEditingId(null);
+      setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "" });
+      fetchData();
+    } catch (e) { alert("Hata oluştu!"); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (confirm("Bu fırsatı silmek istediğine emin misin?")) {
+      try {
+        const { error } = await supabase.from("opportunities").delete().eq("id", id);
+        if (error) throw error;
+        fetchData();
+      } catch (e) { alert("Silinemedi!"); }
+    }
+  };
+
+  const openEditModal = (opp: any) => {
+    setEditingId(opp.id);
+    setFormData({ baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), foto_url: opp.foto_url || "" });
+    setIsModalOpen(true);
+  };
+
+  // YENİLİK: Müşteri kodu gösterdiğinde onu "Kullanıldı" olarak işaretleme
+  const handleApproveCode = async (orderId: string) => {
+    if (confirm("Bu kodu onaylayıp satışı tamamlamak istiyor musunuz?")) {
+      try {
+        const { error } = await supabase.from("siparisler").update({ durum: 'kullanildi' }).eq("id", orderId);
+        if (error) throw error;
+        fetchData(); // Listeyi yenile
+      } catch (e) {
+        alert("Kod onaylanamadı!");
+      }
+    }
+  };
+
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 font-sans">
+        <div className="bg-white p-10 rounded-[40px] w-full max-w-sm text-center shadow-2xl">
+          <div className="w-20 h-20 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl">🔒</div>
+          <h2 className="text-3xl font-black text-slate-800 tracking-tight mb-2">Esnaf Girişi</h2>
+          <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-8">Sadece Yetkililer</p>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input type="password" maxLength={4} placeholder="PIN" className={`w-full text-center tracking-[1em] text-2xl font-black bg-slate-50 border-2 rounded-3xl p-4 outline-none transition-all ${pinError ? 'border-red-500 text-red-500 bg-red-50' : 'border-slate-100 focus:border-orange-500'}`} value={pinCode} onChange={(e) => setPinCode(e.target.value)} />
+            {pinError && <p className="text-red-500 text-xs font-bold uppercase">Hatalı Şifre!</p>}
+            <button type="submit" className="w-full bg-orange-500 text-white font-black py-5 rounded-[25px] shadow-xl shadow-orange-100 text-lg hover:bg-orange-600 transition-all active:scale-95">KİLİDİ AÇ</button>
+          </form>
+          <button onClick={() => window.location.href='/'} className="mt-6 text-slate-400 text-xs font-bold hover:text-slate-800 transition-colors">← Vitrine Dön</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Bekleyen siparişleri filtrele
+  const bekleyenSiparisler = orders.filter(o => o.durum === 'bekliyor');
 
   return (
-    <div style={{ fontFamily: "'DM Sans', 'Segoe UI', sans-serif", background: "#f0f4f9", minHeight: "100vh", display: "flex" }}>
-      {/* Sidebar */}
-      <aside style={{
-        width: 240,
-        background: "#0f2644",
-        display: "flex",
-        flexDirection: "column",
-        padding: "0",
-        boxShadow: "4px 0 24px rgba(15,38,68,0.18)",
-        position: "relative",
-        zIndex: 10,
-      }}>
-        {/* Logo */}
-        <div style={{ padding: "28px 24px 20px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 10,
-              background: "linear-gradient(135deg, #f97316, #ea580c)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 12px rgba(249,115,22,0.4)",
-              fontWeight: 800, color: "#fff", fontSize: 16,
-            }}>F</div>
-            <div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: 16, letterSpacing: "-0.3px" }}>FIRSAT</div>
-              <div style={{ color: "#f97316", fontWeight: 800, fontSize: 13, letterSpacing: "3px", marginTop: -2 }}>23</div>
-            </div>
-          </div>
+    <div className="p-8 bg-slate-50 min-h-screen font-sans text-slate-900">
+      <div className="flex justify-between items-center mb-10 bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+        <div>
+          <h1 className="text-4xl font-black tracking-tighter text-slate-800">Fırsat 23</h1>
+          <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em] mt-1">Esnaf Yönetim Merkezi</p>
         </div>
-
-        {/* User info */}
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: "50%",
-            background: "linear-gradient(135deg, #f97316 0%, #1e3a5f 100%)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: "#fff", fontWeight: 700, fontSize: 15,
-          }}>E</div>
-          <div>
-            <div style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 13 }}>Esnaf Hesabı</div>
-            <div style={{ color: "#64748b", fontSize: 11 }}>Elazığ Merkez</div>
-          </div>
-        </div>
-
-        {/* Nav */}
-        <nav style={{ flex: 1, padding: "16px 12px" }}>
-          <div style={{ color: "#475569", fontSize: 10, fontWeight: 700, letterSpacing: "1.5px", padding: "0 8px 8px", textTransform: "uppercase" }}>MENÜ</div>
-          {NAV_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActive(item.id)}
-              style={{
-                width: "100%", display: "flex", alignItems: "center", gap: 10,
-                padding: "10px 12px", borderRadius: 8, marginBottom: 4,
-                background: active === item.id ? "rgba(249,115,22,0.12)" : "transparent",
-                border: active === item.id ? "1px solid rgba(249,115,22,0.2)" : "1px solid transparent",
-                color: active === item.id ? "#f97316" : "#94a3b8",
-                cursor: "pointer", transition: "all 0.18s", textAlign: "left",
-                fontWeight: active === item.id ? 600 : 400, fontSize: 14,
-              }}
-            >
-              {item.icon}
-              {item.label}
-              {active === item.id && (
-                <div style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: "50%", background: "#f97316" }} />
-              )}
-            </button>
-          ))}
-        </nav>
-
-        {/* Bottom badge */}
-        <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-          <div style={{
-            background: "rgba(249,115,22,0.1)", border: "1px solid rgba(249,115,22,0.2)",
-            borderRadius: 8, padding: "10px 12px",
-          }}>
-            <div style={{ color: "#f97316", fontSize: 11, fontWeight: 700 }}>BETA SÜRÜM</div>
-            <div style={{ color: "#64748b", fontSize: 11, marginTop: 2 }}>Elazığ MVP v1.0</div>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main */}
-      <main style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        {/* Topbar */}
-        <header style={{
-          background: "#fff", borderBottom: "1px solid #e2e8f0",
-          padding: "0 32px", height: 64, display: "flex", alignItems: "center", justifyContent: "space-between",
-        }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 18, color: "#0f2644" }}>Aktif Fırsatlarım</div>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 1 }}>Bugün, {new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })}</div>
-          </div>
-          <button style={{
-            background: "linear-gradient(135deg, #f97316, #ea580c)",
-            color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px",
-            fontWeight: 600, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
-            boxShadow: "0 4px 12px rgba(249,115,22,0.3)",
-          }}>
-            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Yeni Fırsat Ekle
+        <div className="flex gap-4">
+          <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:""}); setIsModalOpen(true); }} className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-3xl font-black shadow-xl shadow-orange-200 transition-all hover:-translate-y-1 active:scale-95">
+            + YENİ FIRSAT
           </button>
-        </header>
+          <button onClick={() => setIsUnlocked(false)} className="bg-slate-900 text-white px-6 py-4 rounded-3xl font-black hover:bg-slate-800 transition-all">
+            ÇIKIŞ
+          </button>
+        </div>
+      </div>
 
-        <div style={{ padding: "28px 32px", flex: 1 }}>
-          {/* Stats */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 28 }}>
-            {STATS.map((s) => (
-              <div key={s.label} style={{
-                background: "#fff", borderRadius: 12, padding: "20px 24px",
-                border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-                display: "flex", alignItems: "center", gap: 16,
-              }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: 10,
-                  background: s.bg, display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <div style={{ width: 18, height: 18, borderRadius: 4, background: s.color, opacity: 0.8 }} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 1 }}>{s.label}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Table card */}
-          <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
-            <div style={{ padding: "18px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "#0f2644" }}>Fırsat Listesi</div>
-              <div style={{
-                background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6,
-                padding: "6px 12px", fontSize: 12, color: "#64748b", display: "flex", alignItems: "center", gap: 6,
-              }}>
-                <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                Ara...
-              </div>
-            </div>
-
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "#f8fafc" }}>
-                  {["Başlık", "Normal Fiyat", "İndirimli Fiyat", "Kalan Stok", "Bitiş", "Durum", "İşlem"].map((h) => (
-                    <th key={h} style={{
-                      padding: "12px 20px", textAlign: "left",
-                      fontSize: 11, fontWeight: 700, color: "#64748b",
-                      letterSpacing: "0.5px", textTransform: "uppercase",
-                      borderBottom: "1px solid #f1f5f9",
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {/* Empty state */}
-                <tr>
-                  <td colSpan={7} style={{ padding: "60px 20px", textAlign: "center" }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                      <div style={{
-                        width: 56, height: 56, borderRadius: 16,
-                        background: "linear-gradient(135deg, #fff7ed, #fef3c7)",
-                        border: "2px dashed #fed7aa",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 24,
-                      }}>🏷️</div>
-                      <div style={{ fontWeight: 600, fontSize: 15, color: "#0f2644" }}>Henüz fırsat eklenmedi</div>
-                      <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 280 }}>
-                        İlk fırsatınızı ekleyerek atıl kapasitenizi öğrencilere sunmaya başlayın.
-                      </div>
-                      <button style={{
-                        background: "linear-gradient(135deg, #f97316, #ea580c)",
-                        color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px",
-                        fontWeight: 600, fontSize: 13, cursor: "pointer", marginTop: 4,
-                        boxShadow: "0 4px 12px rgba(249,115,22,0.25)",
-                      }}>+ İlk Fırsatı Ekle</button>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* SOL TARAF: FIRSATLAR LİSTESİ */}
+        <div className="lg:col-span-2 space-y-4">
+          <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4">Yayındaki Fırsatlar</h2>
+          {loading ? (
+            <div className="py-20 text-center font-black text-slate-200 text-2xl animate-pulse uppercase">Yükleniyor...</div>
+          ) : opportunities.length === 0 ? (
+            <div className="bg-white p-10 rounded-[40px] text-center font-bold text-slate-400 border border-slate-100">Henüz fırsat eklemediniz.</div>
+          ) : (
+            opportunities.map((opp) => (
+              <div key={opp.id} className="bg-white p-6 rounded-[40px] shadow-sm border border-slate-100 flex justify-between items-center hover:shadow-md transition-shadow group">
+                <div className="flex items-center gap-6">
+                  <div className="w-20 h-20 rounded-2xl bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0 border-2 border-slate-50">
+                    {opp.foto_url ? (
+                      <img src={opp.foto_url} alt={opp.baslik} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-3xl">📷</span>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">{opp.baslik}</h3>
+                    <div className="flex items-center gap-4 mt-1">
+                      <span className="text-orange-600 font-black text-lg">{opp.indirimli_fiyat} ₺</span>
+                      <span className="text-slate-300 line-through font-bold text-xs">{opp.normal_fiyat} ₺</span>
                     </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  </div>
+                </div>
+                <div className="flex items-center gap-8">
+                  <div className="text-right">
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">Kalan Stok</p>
+                    <p className="text-xl font-black text-slate-700">{opp.kalan_stok} / {opp.toplam_stok}</p>
+                  </div>
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => openEditModal(opp)} className="bg-blue-50 text-blue-600 w-10 h-10 rounded-xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all">✎</button>
+                    <button onClick={() => handleDelete(opp.id)} className="bg-red-50 text-red-600 w-10 h-10 rounded-xl flex items-center justify-center hover:bg-red-600 hover:text-white transition-all">🗑</button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* SAĞ TARAF: BEKLEYEN KODLAR (YENİ) */}
+        <div className="space-y-4">
+          <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4 flex items-center gap-2">
+            Bekleyen Kodlar 
+            {bekleyenSiparisler.length > 0 && (
+              <span className="bg-red-500 text-white text-sm px-3 py-1 rounded-full">{bekleyenSiparisler.length}</span>
+            )}
+          </h2>
+          <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 p-6">
+            {bekleyenSiparisler.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 font-bold">
+                <span className="text-4xl block mb-2">😴</span>
+                Şu an bekleyen müşteri yok.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {bekleyenSiparisler.map((order) => (
+                  <div key={order.id} className="bg-slate-50 border border-slate-100 rounded-3xl p-5 relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{order.opportunities?.baslik}</p>
+                    <p className="text-2xl font-black text-slate-800 tracking-widest mb-4">{order.kod}</p>
+                    <button 
+                      onClick={() => handleApproveCode(order.id)}
+                      className="w-full bg-emerald-50 text-emerald-600 font-black py-3 rounded-xl text-sm hover:bg-emerald-500 hover:text-white transition-colors"
+                    >
+                      KODU ONAYLA ✔️
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      </main>
+      </div>
+
+      {/* Modal Formu Aynı Kaldı */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[50px] w-full max-w-lg shadow-2xl border border-slate-100 overflow-hidden">
+            <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
+              <h3 className="text-2xl font-black uppercase tracking-tight">{editingId ? "Güncelle" : "Yeni Fırsat"}</h3>
+              <button onClick={() => setIsModalOpen(false)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/20">✕</button>
+            </div>
+            <form onSubmit={handleSave} className="p-10 space-y-5">
+              <input required placeholder="Fırsat Başlığı" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500 transition-all" value={formData.baslik} onChange={(e) => setFormData({...formData, baslik: e.target.value})} />
+              <input placeholder="Fotoğraf Linki (İsteğe Bağlı)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500 transition-all text-sm" value={formData.foto_url} onChange={(e) => setFormData({...formData, foto_url: e.target.value})} />
+              <div className="grid grid-cols-2 gap-4">
+                <input required type="number" placeholder="Eski Fiyat" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
+                <input required type="number" placeholder="Fırsat Fiyatı" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500 text-orange-600" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
+              </div>
+              <input required type="number" placeholder="Toplam Stok" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+              <button type="submit" className="w-full bg-orange-500 text-white font-black py-6 rounded-[32px] shadow-xl shadow-orange-100 text-xl hover:bg-orange-600 transition-all active:scale-95">
+                {editingId ? "KAYDET" : "YAYINLA 🚀"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
