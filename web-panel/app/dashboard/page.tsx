@@ -140,11 +140,17 @@ export default function DashboardPage() {
           <h1 className="text-4xl font-black tracking-tighter text-slate-800">Fırsat 23</h1>
           <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em] mt-1">Esnaf Yönetim Merkezi</p>
         </div>
-        <div className="flex gap-4">
-          <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:""}); setIsModalOpen(true); }} className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-3xl font-black shadow-xl shadow-orange-200 transition-all hover:-translate-y-1 active:scale-95">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:""}); setIsModalOpen(true); }} 
+            className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 whitespace-nowrap flex items-center justify-center h-12 text-sm"
+          >
             + YENİ FIRSAT
           </button>
-          <button onClick={() => setIsUnlocked(false)} className="bg-slate-900 text-white px-6 py-4 rounded-3xl font-black hover:bg-slate-800 transition-all">
+          <button 
+            onClick={() => setIsUnlocked(false)} 
+            className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all whitespace-nowrap flex items-center justify-center h-12 text-sm"
+          >
             ÇIKIŞ
           </button>
         </div>
