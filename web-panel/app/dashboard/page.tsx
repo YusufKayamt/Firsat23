@@ -13,7 +13,6 @@ export default function DashboardPage() {
   const [pinError, setPinError] = useState(false);
 
   const [opportunities, setOpportunities] = useState<any[]>([]);
-  // YENİLİK: Siparişleri (Kodları) tutacağımız state
   const [orders, setOrders] = useState<any[]>([]);
   
   const [loading, setLoading] = useState(true);
@@ -25,12 +24,10 @@ export default function DashboardPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      // 1. Fırsatları çek
       const { data: oppData, error: oppError } = await supabase.from("opportunities").select("*").order("olusturma_zamani", { ascending: false });
       if (oppError) throw oppError;
       setOpportunities(oppData || []);
 
-      // 2. YENİLİK: Sipariş (Kod) Listesini çek (Hangi fırsata ait olduğu bilgisiyle birlikte)
       const { data: orderData, error: orderError } = await supabase.from("siparisler").select("*, opportunities(baslik)").order("olusturma_zamani", { ascending: false });
       if (orderError) throw orderError;
       setOrders(orderData || []);
@@ -99,7 +96,6 @@ export default function DashboardPage() {
     setIsModalOpen(true);
   };
 
-  // YENİLİK: Müşteri kodu gösterdiğinde onu "Kullanıldı" olarak işaretleme
   const handleApproveCode = async (orderId: string) => {
     if (confirm("Bu kodu onaylayıp satışı tamamlamak istiyor musunuz?")) {
       try {
@@ -130,26 +126,27 @@ export default function DashboardPage() {
     );
   }
 
-  // Bekleyen siparişleri filtrele
   const bekleyenSiparisler = orders.filter(o => o.durum === 'bekliyor');
 
   return (
-    <div className="p-8 bg-slate-50 min-h-screen font-sans text-slate-900">
-      <div className="flex justify-between items-center mb-10 bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+    <div className="p-4 sm:p-8 bg-slate-50 min-h-screen font-sans text-slate-900">
+      
+      {/* MOBİL UYUMLU TEPE KUTUSU */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-6 mb-10 bg-white p-6 sm:p-8 rounded-[40px] shadow-sm border border-slate-100 text-center sm:text-left">
         <div>
           <h1 className="text-4xl font-black tracking-tighter text-slate-800">Fırsat 23</h1>
           <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em] mt-1">Esnaf Yönetim Merkezi</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-center gap-3 w-full sm:w-auto">
           <button 
             onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:""}); setIsModalOpen(true); }} 
-            className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 whitespace-nowrap flex items-center justify-center h-12 text-sm"
+            className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-2 sm:px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 whitespace-nowrap flex items-center justify-center h-12 text-xs sm:text-sm"
           >
             + YENİ FIRSAT
           </button>
           <button 
             onClick={() => setIsUnlocked(false)} 
-            className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all whitespace-nowrap flex items-center justify-center h-12 text-sm"
+            className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all whitespace-nowrap flex items-center justify-center h-12 text-xs sm:text-sm"
           >
             ÇIKIŞ
           </button>
@@ -166,8 +163,8 @@ export default function DashboardPage() {
             <div className="bg-white p-10 rounded-[40px] text-center font-bold text-slate-400 border border-slate-100">Henüz fırsat eklemediniz.</div>
           ) : (
             opportunities.map((opp) => (
-              <div key={opp.id} className="bg-white p-6 rounded-[40px] shadow-sm border border-slate-100 flex justify-between items-center hover:shadow-md transition-shadow group">
-                <div className="flex items-center gap-6">
+              <div key={opp.id} className="bg-white p-5 sm:p-6 rounded-[40px] shadow-sm border border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 hover:shadow-md transition-shadow group">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 text-center sm:text-left w-full sm:w-auto">
                   <div className="w-20 h-20 rounded-2xl bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0 border-2 border-slate-50">
                     {opp.foto_url ? (
                       <img src={opp.foto_url} alt={opp.baslik} className="w-full h-full object-cover" />
@@ -175,20 +172,20 @@ export default function DashboardPage() {
                       <span className="text-3xl">📷</span>
                     )}
                   </div>
-                  <div>
-                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">{opp.baslik}</h3>
-                    <div className="flex items-center gap-4 mt-1">
+                  <div className="flex-1">
+                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight leading-tight">{opp.baslik}</h3>
+                    <div className="flex items-center justify-center sm:justify-start gap-4 mt-2">
                       <span className="text-orange-600 font-black text-lg">{opp.indirimli_fiyat} ₺</span>
                       <span className="text-slate-300 line-through font-bold text-xs">{opp.normal_fiyat} ₺</span>
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-8">
-                  <div className="text-right">
+                <div className="flex items-center justify-between w-full sm:w-auto gap-4 sm:gap-8 mt-2 sm:mt-0 border-t sm:border-0 border-slate-100 pt-4 sm:pt-0">
+                  <div className="text-left sm:text-right">
                     <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">Kalan Stok</p>
                     <p className="text-xl font-black text-slate-700">{opp.kalan_stok} / {opp.toplam_stok}</p>
                   </div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-2">
                     <button onClick={() => openEditModal(opp)} className="bg-blue-50 text-blue-600 w-10 h-10 rounded-xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all">✎</button>
                     <button onClick={() => handleDelete(opp.id)} className="bg-red-50 text-red-600 w-10 h-10 rounded-xl flex items-center justify-center hover:bg-red-600 hover:text-white transition-all">🗑</button>
                   </div>
@@ -198,7 +195,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* SAĞ TARAF: BEKLEYEN KODLAR (YENİ) */}
+        {/* SAĞ TARAF: BEKLEYEN KODLAR */}
         <div className="space-y-4">
           <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4 flex items-center gap-2">
             Bekleyen Kodlar 
@@ -233,23 +230,23 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Modal Formu Aynı Kaldı */}
+      {/* Modal Formu (Yeni Fırsat Ekleme Ekranı) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-[50px] w-full max-w-lg shadow-2xl border border-slate-100 overflow-hidden">
-            <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
-              <h3 className="text-2xl font-black uppercase tracking-tight">{editingId ? "Güncelle" : "Yeni Fırsat"}</h3>
+            <div className="p-6 sm:p-8 bg-slate-900 text-white flex justify-between items-center">
+              <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight">{editingId ? "Güncelle" : "Yeni Fırsat"}</h3>
               <button onClick={() => setIsModalOpen(false)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/20">✕</button>
             </div>
-            <form onSubmit={handleSave} className="p-10 space-y-5">
-              <input required placeholder="Fırsat Başlığı" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500 transition-all" value={formData.baslik} onChange={(e) => setFormData({...formData, baslik: e.target.value})} />
-              <input placeholder="Fotoğraf Linki (İsteğe Bağlı)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500 transition-all text-sm" value={formData.foto_url} onChange={(e) => setFormData({...formData, foto_url: e.target.value})} />
-              <div className="grid grid-cols-2 gap-4">
-                <input required type="number" placeholder="Eski Fiyat" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
-                <input required type="number" placeholder="Fırsat Fiyatı" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500 text-orange-600" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
+            <form onSubmit={handleSave} className="p-6 sm:p-10 space-y-4 sm:space-y-5">
+              <input required placeholder="Fırsat Başlığı" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 transition-all text-sm sm:text-base" value={formData.baslik} onChange={(e) => setFormData({...formData, baslik: e.target.value})} />
+              <input placeholder="Fotoğraf Linki (İsteğe Bağlı)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 transition-all text-sm" value={formData.foto_url} onChange={(e) => setFormData({...formData, foto_url: e.target.value})} />
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <input required type="number" placeholder="Eski Fiyat" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-sm sm:text-base" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
+                <input required type="number" placeholder="Fırsat Fiyatı" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-orange-600 text-sm sm:text-base" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
               </div>
-              <input required type="number" placeholder="Toplam Stok" className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-5 font-bold outline-none focus:border-orange-500" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
-              <button type="submit" className="w-full bg-orange-500 text-white font-black py-6 rounded-[32px] shadow-xl shadow-orange-100 text-xl hover:bg-orange-600 transition-all active:scale-95">
+              <input required type="number" placeholder="Toplam Stok" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-sm sm:text-base" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+              <button type="submit" className="w-full bg-orange-500 text-white font-black py-4 sm:py-6 rounded-[24px] sm:rounded-[32px] shadow-xl shadow-orange-100 text-lg sm:text-xl hover:bg-orange-600 transition-all active:scale-95 mt-2">
                 {editingId ? "KAYDET" : "YAYINLA 🚀"}
               </button>
             </form>
