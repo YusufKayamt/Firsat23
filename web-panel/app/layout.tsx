@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: 'Fırsat 23 | Elazığ Anlık Fırsat Platformu',
-  description: 'Elazığ esnafının anlık fırsatlarını yakala, bütçeni koru!',
+  title: 'FırsatGoOnline | Anlık Fırsat Platformu',
+  description: 'Anlık fırsatları yakala, bütçeni koru!',
 }
 
 export default function RootLayout({
