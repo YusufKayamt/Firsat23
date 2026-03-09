@@ -18,7 +18,11 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1" });
+  // YENİ: Kategori state'i eklendi (Varsayılan: Yemek)
+  const [formData, setFormData] = useState({ 
+    baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", 
+    foto_url: "", sure_saat: "24", kisi_basi_limit: "1", kategori: "Yemek" 
+  });
   
   const [now, setNow] = useState(Date.now());
 
@@ -86,6 +90,7 @@ export default function DashboardPage() {
       kalan_stok: parseInt(formData.stok),
       foto_url: formData.foto_url,
       kisi_basi_limit: parseInt(formData.kisi_basi_limit),
+      kategori: formData.kategori, // YENİ: Kategori veritabanına gidiyor
       bitis_zamani: new Date(Date.now() + parseFloat(formData.sure_saat) * 60 * 60 * 1000).toISOString(),
       aktif_mi: true
     };
@@ -94,7 +99,7 @@ export default function DashboardPage() {
       else await supabase.from("opportunities").insert([payload]);
       setIsModalOpen(false);
       setEditingId(null);
-      setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1" });
+      setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1", kategori: "Yemek" });
       fetchData();
     } catch (e) { alert("Hata oluştu!"); }
   };
@@ -112,7 +117,8 @@ export default function DashboardPage() {
       baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), 
       indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), 
       foto_url: opp.foto_url || "", sure_saat: "24",
-      kisi_basi_limit: (opp.kisi_basi_limit || 1).toString()
+      kisi_basi_limit: (opp.kisi_basi_limit || 1).toString(),
+      kategori: opp.kategori || "Yemek" // YENİ: Düzenlerken kategoriyi çek
     });
     setIsModalOpen(true);
   };
@@ -182,7 +188,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center justify-center gap-3 w-full sm:w-auto">
-          <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">
+          <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1", kategori:"Yemek"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">
             + YENİ FIRSAT
           </button>
           <button onClick={handleLogout} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all h-12 text-sm whitespace-nowrap">ÇIKIŞ</button>
@@ -207,6 +213,7 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="text-xl font-black text-slate-800 uppercase leading-tight">{opp.baslik}</h3>
                       <span className="bg-slate-100 text-slate-500 text-[10px] font-black px-2 py-1 rounded-md">Limit: {opp.kisi_basi_limit || 1}</span>
+                      <span className="bg-orange-50 text-orange-500 text-[10px] font-black px-2 py-1 rounded-md">{opp.kategori || 'Yemek'}</span>
                     </div>
                     <div className="flex items-center gap-4 mt-2">
                       <span className="text-orange-600 font-black text-lg">{opp.indirimli_fiyat} ₺</span>
@@ -286,7 +293,6 @@ export default function DashboardPage() {
             <div className="overflow-y-auto p-6 space-y-5 custom-scrollbar">
               <input required placeholder="Fırsat Başlığı (Örn: Gece Lahmacunu)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={formData.baslik} onChange={(e) => setFormData({...formData, baslik: e.target.value})} />
               
-              {/* İŞTE GERİ DÖNEN FOTOĞRAF ALANI */}
               <input placeholder="Fotoğraf Linki (İsteğe Bağlı)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={formData.foto_url} onChange={(e) => setFormData({...formData, foto_url: e.target.value})} />
               
               <div className="grid grid-cols-2 gap-4">
@@ -294,12 +300,18 @@ export default function DashboardPage() {
                 <input required type="number" placeholder="Fırsat Fiyatı (₺)" className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 font-black outline-none focus:border-orange-500 text-orange-600" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
               </div>
               
+              {/* YENİ: Kategori Seçimi Eklendi */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Toplam Stok</label>
-                  <input required type="number" placeholder="Adet" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Kategori</label>
+                  <select required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-700" value={formData.kategori} onChange={(e) => setFormData({...formData, kategori: e.target.value})}>
+                    <option value="Yemek">Yemek</option>
+                    <option value="Tatlı & İçecek">Tatlı & İçecek</option>
+                    <option value="Hizmet">Hizmet</option>
+                    <option value="Diğer">Diğer</option>
+                  </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Kişi Başı Limit</label>
                   <select required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-700" value={formData.kisi_basi_limit} onChange={(e) => setFormData({...formData, kisi_basi_limit: e.target.value})}>
@@ -311,6 +323,11 @@ export default function DashboardPage() {
                     <option value="100">Sınırsız Alabilir</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Toplam Stok</label>
+                <input required type="number" placeholder="Adet" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
               </div>
 
               <div>
