@@ -19,7 +19,8 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "" });
+  // sure_saat eklendi
+  const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
 
   const fetchData = async () => {
     try {
@@ -61,7 +62,7 @@ export default function DashboardPage() {
       toplam_stok: parseInt(formData.stok),
       kalan_stok: parseInt(formData.stok),
       foto_url: formData.foto_url,
-      bitis_zamani: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      bitis_zamani: new Date(Date.now() + parseInt(formData.sure_saat) * 60 * 60 * 1000).toISOString(), // Seçilen süreye göre bitiş
       aktif_mi: true
     };
 
@@ -75,7 +76,7 @@ export default function DashboardPage() {
       }
       setIsModalOpen(false);
       setEditingId(null);
-      setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "" });
+      setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
       fetchData();
     } catch (e) { alert("Hata oluştu!"); }
   };
@@ -92,7 +93,7 @@ export default function DashboardPage() {
 
   const openEditModal = (opp: any) => {
     setEditingId(opp.id);
-    setFormData({ baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), foto_url: opp.foto_url || "" });
+    setFormData({ baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), foto_url: opp.foto_url || "", sure_saat: "24" });
     setIsModalOpen(true);
   };
 
@@ -101,7 +102,7 @@ export default function DashboardPage() {
       try {
         const { error } = await supabase.from("siparisler").update({ durum: 'kullanildi' }).eq("id", orderId);
         if (error) throw error;
-        fetchData(); // Listeyi yenile
+        fetchData();
       } catch (e) {
         alert("Kod onaylanamadı!");
       }
@@ -130,31 +131,23 @@ export default function DashboardPage() {
 
   return (
     <div className="p-4 sm:p-8 bg-slate-50 min-h-screen font-sans text-slate-900">
-      
-      {/* MOBİL UYUMLU TEPE KUTUSU */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-6 mb-10 bg-white p-6 sm:p-8 rounded-[40px] shadow-sm border border-slate-100 text-center sm:text-left">
-        <div>
-          <h1 className="text-4xl font-black tracking-tighter text-slate-800">Fırsat 23</h1>
-          <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em] mt-1">Esnaf Yönetim Merkezi</p>
+        <div className="flex items-center gap-4">
+          <img src="/logo.png" alt="FırsatGo Logosu" className="w-16 h-16 sm:w-20 sm:h-20" />
+          <div>
+            <h1 className="text-4xl font-black tracking-tighter text-slate-800">FırsatGo</h1>
+            <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em] mt-1">Esnaf Yönetim Merkezi</p>
+          </div>
         </div>
         <div className="flex items-center justify-center gap-3 w-full sm:w-auto">
-          <button 
-            onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:""}); setIsModalOpen(true); }} 
-            className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-2 sm:px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 whitespace-nowrap flex items-center justify-center h-12 text-xs sm:text-sm"
-          >
+          <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-2 sm:px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 whitespace-nowrap flex items-center justify-center h-12 text-xs sm:text-sm">
             + YENİ FIRSAT
           </button>
-          <button 
-            onClick={() => setIsUnlocked(false)} 
-            className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all whitespace-nowrap flex items-center justify-center h-12 text-xs sm:text-sm"
-          >
-            ÇIKIŞ
-          </button>
+          <button onClick={() => setIsUnlocked(false)} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all whitespace-nowrap flex items-center justify-center h-12 text-xs sm:text-sm">ÇIKIŞ</button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* SOL TARAF: FIRSATLAR LİSTESİ */}
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4">Yayındaki Fırsatlar</h2>
           {loading ? (
@@ -166,11 +159,7 @@ export default function DashboardPage() {
               <div key={opp.id} className="bg-white p-5 sm:p-6 rounded-[40px] shadow-sm border border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 hover:shadow-md transition-shadow group">
                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 text-center sm:text-left w-full sm:w-auto">
                   <div className="w-20 h-20 rounded-2xl bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0 border-2 border-slate-50">
-                    {opp.foto_url ? (
-                      <img src={opp.foto_url} alt={opp.baslik} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-3xl">📷</span>
-                    )}
+                    {opp.foto_url ? <img src={opp.foto_url} alt={opp.baslik} className="w-full h-full object-cover" /> : <span className="text-3xl">📷</span>}
                   </div>
                   <div className="flex-1">
                     <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight leading-tight">{opp.baslik}</h3>
@@ -195,20 +184,11 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* SAĞ TARAF: BEKLEYEN KODLAR */}
         <div className="space-y-4">
-          <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4 flex items-center gap-2">
-            Bekleyen Kodlar 
-            {bekleyenSiparisler.length > 0 && (
-              <span className="bg-red-500 text-white text-sm px-3 py-1 rounded-full">{bekleyenSiparisler.length}</span>
-            )}
-          </h2>
+          <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4 flex items-center gap-2">Bekleyen Kodlar {bekleyenSiparisler.length > 0 && <span className="bg-red-500 text-white text-sm px-3 py-1 rounded-full">{bekleyenSiparisler.length}</span>}</h2>
           <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 p-6">
             {bekleyenSiparisler.length === 0 ? (
-              <div className="text-center py-10 text-slate-400 font-bold">
-                <span className="text-4xl block mb-2">😴</span>
-                Şu an bekleyen müşteri yok.
-              </div>
+              <div className="text-center py-10 text-slate-400 font-bold"><span className="text-4xl block mb-2">😴</span>Şu an bekleyen müşteri yok.</div>
             ) : (
               <div className="space-y-4">
                 {bekleyenSiparisler.map((order) => (
@@ -216,12 +196,7 @@ export default function DashboardPage() {
                     <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
                     <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{order.opportunities?.baslik}</p>
                     <p className="text-2xl font-black text-slate-800 tracking-widest mb-4">{order.kod}</p>
-                    <button 
-                      onClick={() => handleApproveCode(order.id)}
-                      className="w-full bg-emerald-50 text-emerald-600 font-black py-3 rounded-xl text-sm hover:bg-emerald-500 hover:text-white transition-colors"
-                    >
-                      KODU ONAYLA ✔️
-                    </button>
+                    <button onClick={() => handleApproveCode(order.id)} className="w-full bg-emerald-50 text-emerald-600 font-black py-3 rounded-xl text-sm hover:bg-emerald-500 hover:text-white transition-colors">KODU ONAYLA ✔️</button>
                   </div>
                 ))}
               </div>
@@ -230,7 +205,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Modal Formu (Yeni Fırsat Ekleme Ekranı) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-[50px] w-full max-w-lg shadow-2xl border border-slate-100 overflow-hidden">
@@ -245,7 +219,15 @@ export default function DashboardPage() {
                 <input required type="number" placeholder="Eski Fiyat" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-sm sm:text-base" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
                 <input required type="number" placeholder="Fırsat Fiyatı" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-orange-600 text-sm sm:text-base" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
               </div>
-              <input required type="number" placeholder="Toplam Stok" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-sm sm:text-base" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <input required type="number" placeholder="Toplam Stok" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-sm sm:text-base" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+                <select required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-sm sm:text-base text-slate-700" value={formData.sure_saat} onChange={(e) => setFormData({...formData, sure_saat: e.target.value})}>
+                  <option value="1">1 Saat (Hemen Bitsin)</option>
+                  <option value="3">3 Saat (Öğle Arası)</option>
+                  <option value="12">12 Saat (Gün Boyu)</option>
+                  <option value="24">24 Saat (Yarına Kadar)</option>
+                </select>
+              </div>
               <button type="submit" className="w-full bg-orange-500 text-white font-black py-4 sm:py-6 rounded-[24px] sm:rounded-[32px] shadow-xl shadow-orange-100 text-lg sm:text-xl hover:bg-orange-600 transition-all active:scale-95 mt-2">
                 {editingId ? "KAYDET" : "YAYINLA 🚀"}
               </button>
