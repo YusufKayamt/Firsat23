@@ -19,7 +19,6 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  // sure_saat eklendi
   const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
 
   const fetchData = async () => {
@@ -62,7 +61,8 @@ export default function DashboardPage() {
       toplam_stok: parseInt(formData.stok),
       kalan_stok: parseInt(formData.stok),
       foto_url: formData.foto_url,
-      bitis_zamani: new Date(Date.now() + parseInt(formData.sure_saat) * 60 * 60 * 1000).toISOString(), // Seçilen süreye göre bitiş
+      // DİKKAT: Artık buçuklu saatleri de (1.5 gibi) anlayabilmesi için parseFloat kullanıyoruz
+      bitis_zamani: new Date(Date.now() + parseFloat(formData.sure_saat) * 60 * 60 * 1000).toISOString(), 
       aktif_mi: true
     };
 
@@ -221,12 +221,16 @@ export default function DashboardPage() {
               </div>
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 <input required type="number" placeholder="Toplam Stok" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-sm sm:text-base" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+                
+                {/* İŞTE YARIM SAATLİK DÖNGÜ YAPAN YENİ SEÇİM ALANI */}
                 <select required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-3xl p-4 sm:p-5 font-bold outline-none focus:border-orange-500 text-sm sm:text-base text-slate-700" value={formData.sure_saat} onChange={(e) => setFormData({...formData, sure_saat: e.target.value})}>
-                  <option value="1">1 Saat (Hemen Bitsin)</option>
-                  <option value="3">3 Saat (Öğle Arası)</option>
-                  <option value="12">12 Saat (Gün Boyu)</option>
-                  <option value="24">24 Saat (Yarına Kadar)</option>
+                  {Array.from({ length: 48 }, (_, i) => (i + 1) * 0.5).map((val) => (
+                    <option key={val} value={val}>
+                      {val === 0.5 ? "30 Dakika" : val % 1 === 0 ? `${val} Saat` : `${Math.floor(val)} Saat 30 Dakika`}
+                    </option>
+                  ))}
                 </select>
+
               </div>
               <button type="submit" className="w-full bg-orange-500 text-white font-black py-4 sm:py-6 rounded-[24px] sm:rounded-[32px] shadow-xl shadow-orange-100 text-lg sm:text-xl hover:bg-orange-600 transition-all active:scale-95 mt-2">
                 {editingId ? "KAYDET" : "YAYINLA 🚀"}
