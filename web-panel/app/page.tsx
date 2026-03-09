@@ -19,9 +19,12 @@ export default function HomePage() {
   const [authError, setAuthError] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
 
-  // YENİ: Müşteri Profili Modal State'leri
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [myOrders, setMyOrders] = useState<any[]>([]);
+
+  // YENİ: Kategori State'i
+  const [seciliKategori, setSeciliKategori] = useState("Tümü");
+  const kategoriler = ["Tümü", "Yemek", "Tatlı & İçecek", "Hizmet", "Diğer"];
 
   const fetchPublicData = async (isSilent = false) => {
     try {
@@ -33,7 +36,6 @@ export default function HomePage() {
     finally { if (!isSilent) setLoading(false); }
   };
 
-  // YENİ: Müşterinin aldığı kodları veritabanından çeker
   const fetchMyOrders = async () => {
     if (!currentCustomer) return;
     try {
@@ -51,7 +53,6 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Profil modalı açılınca kodları çek
   useEffect(() => {
     if (showProfileModal) fetchMyOrders();
   }, [showProfileModal]);
@@ -82,7 +83,7 @@ export default function HomePage() {
   const handleLogout = () => {
     localStorage.removeItem("firsatgo_musteri");
     setCurrentCustomer(null);
-    setShowProfileModal(false); // Çıkış yapınca profili kapat
+    setShowProfileModal(false);
   };
 
   const handleYakala = async (opp: any) => {
@@ -95,7 +96,6 @@ export default function HomePage() {
     setProcessingId(opp.id);
 
     try {
-      // YENİ KOTA KONTROLÜ: Müşteri bu fırsattan daha önce kaç tane kod almış? (İptal edilenler hariç)
       const limit = opp.kisi_basi_limit || 1;
       const { data: userOrders } = await supabase.from("siparisler")
         .select("id")
@@ -109,7 +109,6 @@ export default function HomePage() {
         return;
       }
 
-      // KOTA AŞILMADIYSA DEVAM ET
       const yeniStok = opp.kalan_stok - 1;
       const { error: updateError } = await supabase.from("opportunities").update({ kalan_stok: yeniStok }).eq("id", opp.id);
       if (updateError) throw updateError;
@@ -118,11 +117,7 @@ export default function HomePage() {
       const sonKullanma = new Date(Date.now() + 15 * 60 * 1000).toISOString(); 
 
       const { error: siparisError } = await supabase.from("siparisler").insert([{ 
-        firsat_id: opp.id, 
-        kod: rastgeleKod, 
-        son_kullanma_zamani: sonKullanma,
-        durum: 'bekliyor',
-        musteri_id: currentCustomer.id 
+        firsat_id: opp.id, kod: rastgeleKod, son_kullanma_zamani: sonKullanma, durum: 'bekliyor', musteri_id: currentCustomer.id 
       }]);
       if (siparisError) throw siparisError;
 
@@ -135,16 +130,26 @@ export default function HomePage() {
     }
   };
 
+  // YENİ: WhatsApp Paylaşım Fonksiyonu
+  const handleShare = (opp: any) => {
+    const mesaj = `🔥 Koş Fırsatı Kaçırma!\n\n🏪 ${opp.dukkan_adi || 'FırsatGo Esnafı'}\n🛍️ ${opp.baslik}\n💸 Sadece ${opp.indirimli_fiyat}₺ (Eski: ${opp.normal_fiyat}₺)\n\n📍 Hemen kodu al: https://firsatgo.online`;
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(mesaj)}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
+  // FIRSATLARI KATEGORİYE GÖRE FİLTRELE
+  const filteredOpportunities = seciliKategori === "Tümü" 
+    ? opportunities 
+    : opportunities.filter(opp => (opp.kategori || 'Yemek') === seciliKategori);
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 relative pb-24">
       
       <div className="bg-orange-500 p-8 pb-20 rounded-b-[50px] shadow-2xl shadow-orange-100 text-center relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent"></div>
         
-        {/* ÜST BAR (Giriş Yap / Profil) */}
         <div className="absolute top-4 right-6 z-20">
           {currentCustomer ? (
-            // YENİ: Profile Tıklanabilir Yapı
             <div onClick={() => setShowProfileModal(true)} className="flex flex-col items-end bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 text-white cursor-pointer hover:bg-white/20 transition-all shadow-lg">
               <span className="text-sm font-black text-white flex items-center gap-2">{currentCustomer.ad_soyad} 👤</span>
               <span className="text-[10px] uppercase font-bold text-orange-200">Kodlarım & Profil</span>
@@ -163,13 +168,27 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="max-w-xl mx-auto px-6 -mt-12 space-y-8">
+      <div className="max-w-xl mx-auto px-6 -mt-12 space-y-6">
+        
+        {/* YENİ: KATEGORİ FİLTRE MENÜSÜ */}
+        <div className="bg-white p-3 rounded-3xl shadow-xl flex gap-2 overflow-x-auto scrollbar-hide border border-slate-100 relative z-20">
+          {kategoriler.map((kat) => (
+            <button 
+              key={kat} 
+              onClick={() => setSeciliKategori(kat)}
+              className={`flex-none px-5 py-2.5 rounded-2xl font-black text-xs transition-all tracking-wider ${seciliKategori === kat ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+            >
+              {kat}
+            </button>
+          ))}
+        </div>
+
         {loading ? (
-          <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic">VİTRİN HAZIRLANIYOR...</div>
-        ) : opportunities.length === 0 ? (
-          <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400">Şu an aktif fırsat yok. Esnafın fırını yakmasını bekliyoruz! 🥨</div>
+          <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic mt-4">VİTRİN HAZIRLANIYOR...</div>
+        ) : filteredOpportunities.length === 0 ? (
+          <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400 mt-4">Bu kategoride şu an aktif fırsat yok. 🥨</div>
         ) : (
-          opportunities.map((opp) => {
+          filteredOpportunities.map((opp) => {
             const bitis = new Date(opp.bitis_zamani).getTime();
             const kalanMilisaniye = bitis - now;
             const sureDoldu = kalanMilisaniye <= 0;
@@ -182,7 +201,8 @@ export default function HomePage() {
             const zamanMetni = sureDoldu ? "SÜRE BİTTİ" : `${saat.toString().padStart(2, '0')}:${dakika.toString().padStart(2, '0')}:${saniye.toString().padStart(2, '0')}`;
 
             return (
-              <div key={opp.id} className={`bg-white rounded-[40px] shadow-xl overflow-hidden border-2 transition-all duration-300 ${tukendiMi ? 'border-slate-100 opacity-75' : 'border-white hover:-translate-y-1 shadow-slate-200/50'}`}>
+              <div key={opp.id} className={`bg-white rounded-[40px] shadow-xl overflow-hidden border-2 transition-all duration-300 relative ${tukendiMi ? 'border-slate-100 opacity-75' : 'border-white hover:-translate-y-1 shadow-slate-200/50'}`}>
+                
                 {opp.foto_url && (
                   <div className="w-full h-56 bg-slate-100 relative overflow-hidden">
                     <img src={opp.foto_url} alt={opp.baslik} className={`w-full h-full object-cover transition-transform duration-700 hover:scale-110 ${tukendiMi ? 'grayscale' : ''}`} />
@@ -197,6 +217,7 @@ export default function HomePage() {
                     )}
                   </div>
                 )}
+
                 <div className="p-8 relative">
                   {!opp.foto_url && (
                     <div className="absolute top-6 right-8 bg-slate-100 text-slate-800 font-black px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm">
@@ -204,12 +225,23 @@ export default function HomePage() {
                       <span className="tracking-widest font-mono">{zamanMetni}</span>
                     </div>
                   )}
+
                   <div className="flex justify-between items-start mb-4 pr-24">
-                    <span className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px]">
-                      {opp.dukkan_adi || "FırsatGo Esnafı"}
-                    </span>
+                    <div className="flex flex-col gap-1">
+                      <span className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px] inline-block">
+                        {opp.dukkan_adi || "FırsatGo Esnafı"}
+                      </span>
+                      {/* Kategori Etiketi */}
+                      <span className="text-[10px] font-bold text-slate-400 px-1">{opp.kategori || 'Yemek'}</span>
+                    </div>
+                    
+                    {/* YENİ: WHATSAPP PAYLAŞ BUTONU */}
+                    <button onClick={() => handleShare(opp)} className="absolute top-6 right-8 bg-green-100 text-green-600 p-3 rounded-2xl hover:bg-green-500 hover:text-white transition-all shadow-sm group">
+                      <span className="text-xl group-hover:animate-bounce inline-block">💬</span>
+                    </button>
                   </div>
-                  <h3 className={`text-2xl font-black leading-tight mb-4 ${tukendiMi ? 'text-slate-400' : 'text-slate-800'}`}>{opp.baslik}</h3>
+
+                  <h3 className={`text-2xl font-black leading-tight mb-4 pr-12 ${tukendiMi ? 'text-slate-400' : 'text-slate-800'}`}>{opp.baslik}</h3>
                   <div className="flex items-center gap-4 mb-6">
                     <span className={`font-black text-4xl ${tukendiMi ? 'text-slate-400' : 'text-orange-600'}`}>{opp.indirimli_fiyat} ₺</span>
                     <span className="text-slate-300 line-through text-lg font-bold">{opp.normal_fiyat} ₺</span>
@@ -232,7 +264,7 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* YENİ: MÜŞTERİ PROFİLİ (KODLARIM) MODALI */}
+      {/* PROFİL MODALI */}
       {showProfileModal && currentCustomer && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
           <div className="bg-white rounded-t-[40px] sm:rounded-[40px] w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
@@ -240,14 +272,12 @@ export default function HomePage() {
               <h3 className="text-xl font-black uppercase tracking-tight">Profil & Cüzdan</h3>
               <button onClick={() => setShowProfileModal(false)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/20">✕</button>
             </div>
-            
             <div className="p-6 border-b border-slate-100 bg-slate-50">
               <div className="w-16 h-16 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-2">{currentCustomer.ad_soyad.charAt(0)}</div>
               <h2 className="text-xl font-black text-center text-slate-800">{currentCustomer.ad_soyad}</h2>
               <p className="text-center text-slate-400 font-mono text-sm">{currentCustomer.telefon}</p>
               <button onClick={handleLogout} className="mt-4 w-full bg-red-50 text-red-600 font-black py-2 rounded-xl text-xs hover:bg-red-500 hover:text-white transition-colors">HESAPTAN ÇIKIŞ YAP</button>
             </div>
-
             <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar bg-white flex-1">
               <h4 className="font-black text-slate-400 uppercase tracking-widest text-xs mb-4">Aldığım Kodlar</h4>
               {myOrders.length === 0 ? (
@@ -259,7 +289,6 @@ export default function HomePage() {
                   const siparisSuresiDoldu = kalanSaniye <= 0;
                   const dk = Math.floor(Math.max(0, kalanSaniye) / 60).toString().padStart(2, '0');
                   const sn = (Math.max(0, kalanSaniye) % 60).toString().padStart(2, '0');
-
                   let durumGorunumu = "";
                   if (order.durum === 'kullanildi') durumGorunumu = "bg-emerald-50 border-emerald-200 opacity-60";
                   else if (order.durum === 'iptal' || siparisSuresiDoldu) durumGorunumu = "bg-red-50 border-red-100 opacity-60";
@@ -269,8 +298,6 @@ export default function HomePage() {
                     <div key={order.id} className={`border-2 rounded-3xl p-5 relative overflow-hidden transition-all ${durumGorunumu}`}>
                       <div className="flex justify-between items-start mb-2">
                         <p className="text-xs font-black text-slate-500 uppercase">{order.opportunities?.dukkan_adi}</p>
-                        
-                        {/* DURUM ROZETİ */}
                         {order.durum === 'kullanildi' ? (
                           <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md">KULLANILDI ✔️</span>
                         ) : order.durum === 'iptal' || siparisSuresiDoldu ? (
@@ -281,9 +308,7 @@ export default function HomePage() {
                           </span>
                         )}
                       </div>
-                      
                       <h4 className="font-bold text-slate-800 text-sm mb-3">{order.opportunities?.baslik}</h4>
-                      
                       <div className="bg-white/80 border border-slate-200 rounded-2xl p-3 text-center">
                          <span className={`text-2xl font-black tracking-widest ${order.durum === 'bekliyor' && !siparisSuresiDoldu ? 'text-orange-600' : 'text-slate-400 line-through'}`}>{order.kod}</span>
                       </div>
@@ -296,7 +321,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* MÜŞTERİ GİRİŞ MODALI */}
+      {/* AUTH VE BAŞARILI KOD MODALLARI AYNEN KORUNDU */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative">
@@ -336,7 +361,6 @@ export default function HomePage() {
               const kodSureDoldu = kalanSureSaniye <= 0;
               const dk = Math.floor(Math.max(0, kalanSureSaniye) / 60).toString().padStart(2, '0');
               const sn = (Math.max(0, kalanSureSaniye) % 60).toString().padStart(2, '0');
-
               return (
                 <>
                   <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl ${kodSureDoldu ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'}`}>
