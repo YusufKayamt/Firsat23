@@ -10,6 +10,7 @@ export default function DashboardPage() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ dukkan_adi: "", telefon: "", sifre: "" });
   const [authError, setAuthError] = useState("");
+  const [rememberMe, setRememberMe] = useState(true); // YENİ: Beni Hatırla state'i
 
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
@@ -18,8 +19,15 @@ export default function DashboardPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
   
-  // Canlı sayaç için saat
   const [now, setNow] = useState(Date.now());
+
+  // YENİ: Sayfa açıldığında hafızada esnaf var mı diye kontrol et
+  useEffect(() => {
+    const savedUser = localStorage.getItem("firsatgo_esnaf");
+    if (savedUser) {
+      setCurrentUser(JSON.parse(savedUser));
+    }
+  }, []);
 
   const fetchData = async () => {
     if (!currentUser) return;
@@ -38,7 +46,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (currentUser) fetchData();
-    // Esnaf panelinde de canlı sayacı aktif ediyoruz
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [currentUser]);
@@ -47,16 +54,32 @@ export default function DashboardPage() {
     e.preventDefault();
     setAuthError("");
     try {
+      let loggedInUser = null;
       if (authMode === 'register') {
         const { data, error } = await supabase.from("esnaflar").insert([{ dukkan_adi: authForm.dukkan_adi, telefon: authForm.telefon, sifre: authForm.sifre }]).select();
         if (error) throw new Error("Bu telefon numarası zaten kayıtlı olabilir!");
-        setCurrentUser(data[0]);
+        loggedInUser = data[0];
       } else {
         const { data, error } = await supabase.from("esnaflar").select("*").eq("telefon", authForm.telefon).eq("sifre", authForm.sifre).single();
         if (error || !data) throw new Error("Telefon numarası veya şifre hatalı!");
-        setCurrentUser(data);
+        loggedInUser = data;
       }
+      
+      setCurrentUser(loggedInUser);
+      // YENİ: Beni Hatırla seçiliyse tarayıcıya kaydet
+      if (rememberMe) {
+        localStorage.setItem("firsatgo_esnaf", JSON.stringify(loggedInUser));
+      } else {
+        localStorage.removeItem("firsatgo_esnaf");
+      }
+
     } catch (err: any) { setAuthError(err.message); }
+  };
+
+  // YENİ: Çıkış yaparken hafızayı temizle
+  const handleLogout = () => {
+    localStorage.removeItem("firsatgo_esnaf");
+    setCurrentUser(null);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -103,13 +126,10 @@ export default function DashboardPage() {
     }
   };
 
-  // KOD SÜRESİ DOLDUĞUNDA SİPARİŞİ İPTAL EDİP STOĞA GERİ KOYMA İŞLEMİ
   const handleCancelExpiredCode = async (orderId: string, firsatId: string, guncelKalanStok: number) => {
     if (confirm("Bu kodun süresi dolmuş. İptal edip ürünü tekrar vitrine (stoğa) eklemek istiyor musunuz?")) {
       try {
-        // 1. Siparişin durumunu iptal yap (listeden düşer)
         await supabase.from("siparisler").update({ durum: 'iptal' }).eq("id", orderId);
-        // 2. Fırsatın stoğunu 1 artır
         await supabase.from("opportunities").update({ kalan_stok: guncelKalanStok + 1 }).eq("id", firsatId);
         fetchData();
       } catch (e) { alert("İşlem sırasında hata oluştu!"); }
@@ -135,6 +155,13 @@ export default function DashboardPage() {
             )}
             <input required type="tel" placeholder="Telefon Numarası" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.telefon} onChange={(e) => setAuthForm({...authForm, telefon: e.target.value})} />
             <input required type="password" placeholder="Şifre" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.sifre} onChange={(e) => setAuthForm({...authForm, sifre: e.target.value})} />
+            
+            {/* YENİ: Beni Hatırla Kutucuğu */}
+            <div className="flex items-center gap-2 px-2 py-1">
+              <input type="checkbox" id="remember" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="w-4 h-4 text-orange-500 rounded border-slate-300 focus:ring-orange-500"/>
+              <label htmlFor="remember" className="text-sm font-bold text-slate-500">Beni Hatırla</label>
+            </div>
+
             {authError && <p className="text-red-500 text-xs font-bold text-center">{authError}</p>}
             <button type="submit" className="w-full bg-orange-500 text-white font-black py-4 rounded-[24px] shadow-xl shadow-orange-100 text-lg hover:bg-orange-600 transition-all active:scale-95 mt-4">
               {authMode === 'login' ? 'GİRİŞ YAP' : 'HESAP OLUŞTUR'}
@@ -163,7 +190,8 @@ export default function DashboardPage() {
           <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">
             + YENİ FIRSAT
           </button>
-          <button onClick={() => setCurrentUser(null)} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all h-12 text-sm whitespace-nowrap">ÇIKIŞ</button>
+          {/* ÇIKIŞ YAPILDIĞINDA HAFIZAYI TEMİZLE */}
+          <button onClick={handleLogout} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all h-12 text-sm whitespace-nowrap">ÇIKIŞ</button>
         </div>
       </div>
 
@@ -196,12 +224,8 @@ export default function DashboardPage() {
                     <p className="text-xl font-black text-slate-700">{opp.kalan_stok} / {opp.toplam_stok}</p>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => openEditModal(opp)} className="bg-blue-50 text-blue-600 w-12 h-12 rounded-xl flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all shadow-sm">
-                      <span className="text-lg">✎</span>
-                    </button>
-                    <button onClick={() => handleDelete(opp.id)} className="bg-red-50 text-red-600 w-12 h-12 rounded-xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm">
-                      <span className="text-lg">🗑</span>
-                    </button>
+                    <button onClick={() => openEditModal(opp)} className="bg-blue-50 text-blue-600 w-12 h-12 rounded-xl flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all shadow-sm"><span className="text-lg">✎</span></button>
+                    <button onClick={() => handleDelete(opp.id)} className="bg-red-50 text-red-600 w-12 h-12 rounded-xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"><span className="text-lg">🗑</span></button>
                   </div>
                 </div>
               </div>
@@ -217,7 +241,6 @@ export default function DashboardPage() {
             ) : (
               <div className="space-y-4">
                 {bekleyenSiparisler.map((order) => {
-                  // SİPARİŞ İÇİN ZAMAN HESABI
                   const siparisBitis = new Date(order.son_kullanma_zamani).getTime();
                   const kalanSaniye = Math.floor((siparisBitis - now) / 1000);
                   const siparisSuresiDoldu = kalanSaniye <= 0;
@@ -227,11 +250,8 @@ export default function DashboardPage() {
                   return (
                     <div key={order.id} className={`border rounded-3xl p-5 relative overflow-hidden group transition-all ${siparisSuresiDoldu ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
                       <div className={`absolute top-0 left-0 w-1 h-full ${siparisSuresiDoldu ? 'bg-red-500' : 'bg-orange-500'}`}></div>
-                      
                       <div className="flex justify-between items-start mb-1">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{order.opportunities?.baslik}</p>
-                        
-                        {/* KRONOMETRE ETİKETİ */}
                         {siparisSuresiDoldu ? (
                           <span className="text-[10px] font-black text-red-600 bg-red-100 px-2 py-1 rounded-md">SÜRESİ DOLDU</span>
                         ) : (
@@ -240,9 +260,7 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </div>
-
                       <p className={`text-2xl font-black tracking-widest mb-4 ${siparisSuresiDoldu ? 'text-red-800/50 line-through' : 'text-slate-800'}`}>{order.kod}</p>
-                      
                       {siparisSuresiDoldu ? (
                         <button onClick={() => handleCancelExpiredCode(order.id, order.firsat_id, order.opportunities?.kalan_stok)} className="w-full bg-red-600 text-white font-black py-3 rounded-xl text-sm hover:bg-red-700 transition-colors shadow-lg shadow-red-200">
                           SİL & STOĞA GERİ EKLE 🔄
@@ -283,12 +301,7 @@ export default function DashboardPage() {
                 <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Fırsat Süresi Seçin</label>
                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                   {sureSecenekleri.map((val) => (
-                    <button 
-                      key={val} 
-                      type="button" 
-                      onClick={() => setFormData({...formData, sure_saat: val.toString()})}
-                      className={`flex-none px-5 py-3 rounded-2xl font-black text-sm transition-all border-2 ${formData.sure_saat === val.toString() ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-200' : 'bg-white border-slate-100 text-slate-500 hover:border-orange-300'}`}
-                    >
+                    <button key={val} type="button" onClick={() => setFormData({...formData, sure_saat: val.toString()})} className={`flex-none px-5 py-3 rounded-2xl font-black text-sm transition-all border-2 ${formData.sure_saat === val.toString() ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-200' : 'bg-white border-slate-100 text-slate-500 hover:border-orange-300'}`}>
                       {val === 0.5 ? "30 Dk" : val % 1 === 0 ? `${val} Saat` : `${Math.floor(val)} Saat 30 Dk`}
                     </button>
                   ))}
