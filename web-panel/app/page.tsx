@@ -25,9 +25,12 @@ export default function HomePage() {
   const [seciliKategori, setSeciliKategori] = useState("Tümü");
   const kategoriler = ["Tümü", "Yemek", "Tatlı & İçecek", "Hizmet", "Diğer"];
 
-  // YENİ: Arama Çubuğu ve Dükkan Profili State'leri
   const [aramaKelimesi, setAramaKelimesi] = useState("");
   const [seciliDukkan, setSeciliDukkan] = useState<string | null>(null);
+
+  // YENİ: UYGULAMA İNDİRME (PWA) STATE'LERİ
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBtn, setShowInstallBtn] = useState(false);
 
   const fetchPublicData = async (isSilent = false) => {
     try {
@@ -53,10 +56,34 @@ export default function HomePage() {
     if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
 
     const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+
+    // YENİ: TARAYICININ İNDİRME İSTEĞİNİ YAKALAYAN KOD
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault(); // Tarayıcının kendi banner'ını engelle
+      setDeferredPrompt(e); // Olayı kaydet
+      setShowInstallBtn(true); // Bizim butonumuzu göster
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
   }, []);
 
   useEffect(() => { if (showProfileModal) fetchMyOrders(); }, [showProfileModal]);
+
+  // YENİ: İNDİR BUTONUNA BASILINCA ÇALIŞAN FONKSİYON
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt(); // İndirme sorusunu ekrana getir
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallBtn(false); // Kabul ederse butonu gizle
+    }
+    setDeferredPrompt(null);
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,7 +147,6 @@ export default function HomePage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(mesaj)}`, '_blank');
   };
 
-  // YENİ: HEM ARAMA HEM KATEGORİ FİLTRESİ
   const filteredOpportunities = opportunities.filter(opp => {
     const kategoriUyumu = seciliKategori === "Tümü" || (opp.kategori || 'Yemek') === seciliKategori;
     const aramaUyumu = opp.baslik.toLowerCase().includes(aramaKelimesi.toLowerCase()) || (opp.dukkan_adi || "").toLowerCase().includes(aramaKelimesi.toLowerCase());
@@ -149,13 +175,20 @@ export default function HomePage() {
               <img src="/icon.png" alt="FırsatGo Logo" className="w-full h-full object-contain rounded-full" />
           </div>
           <h1 className="text-4xl font-black text-white tracking-tighter mb-2 relative z-10">FIRSAT 23</h1>
-          <p className="text-orange-100 font-bold uppercase tracking-widest text-xs relative z-10">Elazığ'ın Anlık İndirim Vitrini</p>
+          <p className="text-orange-100 font-bold uppercase tracking-widest text-xs relative z-10 mb-4">Elazığ'ın Anlık İndirim Vitrini</p>
+          
+          {/* YENİ: ŞIK İNDİRME BUTONU (Sadece tarayıcı izin verirse görünür) */}
+          {showInstallBtn && (
+            <button onClick={handleInstallClick} className="relative z-20 bg-slate-900 text-white font-black px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 hover:bg-slate-800 transition-all animate-bounce">
+              <span className="text-xl">📱</span> UYGULAMAYI İNDİR
+            </button>
+          )}
+
         </div>
       </div>
 
       <div className="max-w-xl mx-auto px-6 -mt-12 space-y-6">
         
-        {/* YENİ: ARAMA ÇUBUĞU */}
         <div className="relative z-20">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
             <span className="text-xl">🔍</span>
@@ -221,7 +254,6 @@ export default function HomePage() {
 
                   <div className="flex justify-between items-start mb-4 pr-24">
                     <div className="flex flex-col gap-1">
-                      {/* YENİ: TIKLANABİLİR DÜKKAN İSMİ */}
                       <span 
                         onClick={() => setSeciliDukkan(opp.dukkan_adi)}
                         className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px] inline-block cursor-pointer hover:bg-orange-200 transition-colors"
@@ -260,7 +292,6 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* YENİ: DÜKKAN PROFİLİ (VİTRİN) MODALI */}
       {seciliDukkan && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
           <div className="bg-white rounded-t-[40px] sm:rounded-[40px] w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
@@ -290,7 +321,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* PROFİL MODALI */}
       {showProfileModal && currentCustomer && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
           <div className="bg-white rounded-t-[40px] sm:rounded-[40px] w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
@@ -347,7 +377,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* AUTH VE BAŞARILI KOD MODALLARI AYNEN KORUNDU */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative">
