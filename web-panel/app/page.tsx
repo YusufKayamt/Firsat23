@@ -17,7 +17,7 @@ export default function HomePage() {
       if (!isSilent) setLoading(true);
       const { data, error } = await supabase
         .from("opportunities")
-        .select("*, shops(dukkan_adi)")
+        .select("*") // DÜZELTİLDİ: Artık dükkan adı fırsatın kendi içinde olduğu için sadece * yeterli
         .eq("aktif_mi", true)
         .order("olusturma_zamani", { ascending: false });
 
@@ -128,7 +128,7 @@ export default function HomePage() {
 
                   <div className="flex justify-between items-start mb-4 pr-24">
                     <span className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px]">
-                      {opp.shops?.dukkan_adi || "Merkez Esnafı"}
+                      {opp.dukkan_adi || "FırsatGo Esnafı"} {/* DÜZELTİLDİ: Esnafın kendi girdiği dükkan adı */}
                     </span>
                   </div>
                   
