@@ -9,15 +9,17 @@ export default function HomePage() {
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [successCode, setSuccessCode] = useState<{baslik: string, kod: string} | null>(null);
-  const [now, setNow] = useState(Date.now()); // Canlı saat
+  
+  // Kod başarıyla alındığında bitiş zamanını da kaydediyoruz
+  const [successCode, setSuccessCode] = useState<{baslik: string, kod: string, bitis: string} | null>(null);
+  const [now, setNow] = useState(Date.now()); 
 
   const fetchPublicData = async (isSilent = false) => {
     try {
       if (!isSilent) setLoading(true);
       const { data, error } = await supabase
         .from("opportunities")
-        .select("*") // DÜZELTİLDİ: Artık dükkan adı fırsatın kendi içinde olduğu için sadece * yeterli
+        .select("*") 
         .eq("aktif_mi", true)
         .order("olusturma_zamani", { ascending: false });
 
@@ -33,7 +35,6 @@ export default function HomePage() {
     window.addEventListener("focus", handleVisibility);
     window.addEventListener("pageshow", handleVisibility);
 
-    // KRONOMETRE MOTORU (Her saniye günceller)
     const timer = setInterval(() => setNow(Date.now()), 1000);
 
     return () => {
@@ -53,11 +54,21 @@ export default function HomePage() {
       if (updateError) throw updateError;
 
       const rastgeleKod = "FRS-" + Math.random().toString(36).substring(2, 6).toUpperCase();
-      const { error: siparisError } = await supabase.from("siparisler").insert([{ firsat_id: opp.id, kod: rastgeleKod }]);
+      
+      // KOD İÇİN 15 DAKİKA ÖMÜR BİÇİYORUZ
+      const sonKullanma = new Date(Date.now() + 15 * 60 * 1000).toISOString(); 
+
+      // durum: 'bekliyor' bilgisini garantiye alıyoruz
+      const { error: siparisError } = await supabase.from("siparisler").insert([{ 
+        firsat_id: opp.id, 
+        kod: rastgeleKod, 
+        son_kullanma_zamani: sonKullanma,
+        durum: 'bekliyor'
+      }]);
       if (siparisError) throw siparisError;
 
       setOpportunities((mevcut) => mevcut.map((item) => item.id === opp.id ? { ...item, kalan_stok: yeniStok } : item));
-      setSuccessCode({ baslik: opp.baslik, kod: rastgeleKod });
+      setSuccessCode({ baslik: opp.baslik, kod: rastgeleKod, bitis: sonKullanma });
     } catch (error) {
       alert("Fırsat yakalanamadı, internetini kontrol et.");
     } finally {
@@ -83,14 +94,12 @@ export default function HomePage() {
           <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400">Şu an aktif fırsat yok. Esnafın fırını yakmasını bekliyoruz! 🥨</div>
         ) : (
           opportunities.map((opp) => {
-            // ZAMAN HESAPLAMA MANTIĞI
             const bitis = new Date(opp.bitis_zamani).getTime();
             const kalanMilisaniye = bitis - now;
             const sureDoldu = kalanMilisaniye <= 0;
             const tukendiMi = opp.kalan_stok <= 0 || sureDoldu;
             const yuzdeKalan = (opp.kalan_stok / opp.toplam_stok) * 5;
 
-            // SAAT:DAKİKA:SANİYE FORMATI
             const saat = Math.floor(Math.max(0, kalanMilisaniye) / (1000 * 60 * 60));
             const dakika = Math.floor((Math.max(0, kalanMilisaniye) % (1000 * 60 * 60)) / (1000 * 60));
             const saniye = Math.floor((Math.max(0, kalanMilisaniye) % (1000 * 60)) / 1000);
@@ -103,7 +112,6 @@ export default function HomePage() {
                   <div className="w-full h-56 bg-slate-100 relative overflow-hidden">
                     <img src={opp.foto_url} alt={opp.baslik} className={`w-full h-full object-cover transition-transform duration-700 hover:scale-110 ${tukendiMi ? 'grayscale' : ''}`} />
                     
-                    {/* YENİ KRONOMETRE ROZETİ */}
                     <div className="absolute top-4 right-4 bg-slate-900/80 backdrop-blur-md text-white font-black px-4 py-2 rounded-xl flex items-center gap-2 border border-white/20 shadow-xl">
                       <span className={`${sureDoldu ? 'text-red-500' : 'text-orange-400 animate-pulse'}`}>⏳</span>
                       <span className="tracking-widest font-mono">{zamanMetni}</span>
@@ -118,7 +126,6 @@ export default function HomePage() {
                 )}
 
                 <div className="p-8 relative">
-                  {/* FOTOĞRAF YOKSA KRONOMETREYİ BURAYA KOY */}
                   {!opp.foto_url && (
                     <div className="absolute top-6 right-8 bg-slate-100 text-slate-800 font-black px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm">
                       <span className={`${sureDoldu ? 'text-red-500' : 'text-orange-500 animate-pulse'}`}>⏳</span>
@@ -128,7 +135,7 @@ export default function HomePage() {
 
                   <div className="flex justify-between items-start mb-4 pr-24">
                     <span className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px]">
-                      {opp.dukkan_adi || "FırsatGo Esnafı"} {/* DÜZELTİLDİ: Esnafın kendi girdiği dükkan adı */}
+                      {opp.dukkan_adi || "FırsatGo Esnafı"}
                     </span>
                   </div>
                   
@@ -158,16 +165,47 @@ export default function HomePage() {
         )}
       </div>
 
+      {/* MODAL İÇİ KOD SÜRESİ KRONOMETRESİ */}
       {successCode && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm text-center shadow-2xl">
-            <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl">🎉</div>
-            <h2 className="text-2xl font-black text-slate-800 mb-2">Fırsatı Kaptın!</h2>
-            <p className="text-slate-500 font-medium mb-6"><strong className="text-slate-800">{successCode.baslik}</strong> için kodun hazır. Kasada bu kodu göster:</p>
-            <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl p-6 mb-6">
-              <span className="text-4xl font-black text-orange-600 tracking-widest">{successCode.kod}</span>
-            </div>
-            <button onClick={() => setSuccessCode(null)} className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-slate-800 transition-colors">KAPAT VE VİTRİNE DÖN</button>
+            
+            {(() => {
+              // Müşteri için 15 dakikalık kod kronometresini hesapla
+              const kalanSureSaniye = Math.floor((new Date(successCode.bitis).getTime() - now) / 1000);
+              const kodSureDoldu = kalanSureSaniye <= 0;
+              const dk = Math.floor(Math.max(0, kalanSureSaniye) / 60).toString().padStart(2, '0');
+              const sn = (Math.max(0, kalanSureSaniye) % 60).toString().padStart(2, '0');
+
+              return (
+                <>
+                  <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl ${kodSureDoldu ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'}`}>
+                    {kodSureDoldu ? '⏰' : '🎉'}
+                  </div>
+                  <h2 className="text-2xl font-black text-slate-800 mb-2">Fırsatı Kaptın!</h2>
+                  
+                  {kodSureDoldu ? (
+                    <div className="bg-red-50 border-2 border-red-200 rounded-3xl p-6 mb-6">
+                      <p className="text-red-600 font-black text-lg mb-2">SÜRENİZ DOLDU!</p>
+                      <p className="text-red-500 text-sm font-medium">Bu kodun geçerlilik süresi bittiği için geçersiz sayılmıştır.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-slate-500 font-medium mb-4"><strong className="text-slate-800">{successCode.baslik}</strong> için kodun hazır. Kasada bu kodu göster:</p>
+                      <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl p-6 mb-4">
+                        <span className="text-4xl font-black text-orange-600 tracking-widest">{successCode.kod}</span>
+                      </div>
+                      <div className="bg-orange-50 text-orange-600 font-black px-4 py-3 rounded-2xl flex items-center justify-center gap-2 mb-6">
+                        <span className="animate-pulse">⏳</span> Geçerlilik Süresi: {dk}:{sn}
+                      </div>
+                    </>
+                  )}
+
+                  <button onClick={() => setSuccessCode(null)} className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-slate-800 transition-colors">KAPAT VE VİTRİNE DÖN</button>
+                </>
+              );
+            })()}
+            
           </div>
         </div>
       )}

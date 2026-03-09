@@ -6,19 +6,20 @@ import { createClient } from "../utils/supabase/client";
 const supabase = createClient();
 
 export default function DashboardPage() {
-  // --- KİMLİK DOĞRULAMA (AUTH) STATE'LERİ ---
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ dukkan_adi: "", telefon: "", sifre: "" });
   const [authError, setAuthError] = useState("");
 
-  // --- FIRSAT STATE'LERİ ---
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null); // Düzenleme modu için
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
+  
+  // Canlı sayaç için saat
+  const [now, setNow] = useState(Date.now());
 
   const fetchData = async () => {
     if (!currentUser) return;
@@ -28,7 +29,7 @@ export default function DashboardPage() {
       if (oppError) throw oppError;
       setOpportunities(oppData || []);
 
-      const { data: orderData, error: orderError } = await supabase.from("siparisler").select("*, opportunities!inner(baslik, esnaf_id)").eq("opportunities.esnaf_id", currentUser.id).order("olusturma_zamani", { ascending: false });
+      const { data: orderData, error: orderError } = await supabase.from("siparisler").select("*, opportunities!inner(baslik, esnaf_id, kalan_stok)").eq("opportunities.esnaf_id", currentUser.id).order("olusturma_zamani", { ascending: false });
       if (orderError) throw orderError;
       setOrders(orderData || []);
     } catch (e) { console.error(e); }
@@ -37,13 +38,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (currentUser) fetchData();
+    // Esnaf panelinde de canlı sayacı aktif ediyoruz
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, [currentUser]);
 
-  // --- KAYIT OL VE GİRİŞ YAP İŞLEMLERİ ---
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
-
     try {
       if (authMode === 'register') {
         const { data, error } = await supabase.from("esnaflar").insert([{ dukkan_adi: authForm.dukkan_adi, telefon: authForm.telefon, sifre: authForm.sifre }]).select();
@@ -54,12 +56,9 @@ export default function DashboardPage() {
         if (error || !data) throw new Error("Telefon numarası veya şifre hatalı!");
         setCurrentUser(data);
       }
-    } catch (err: any) {
-      setAuthError(err.message);
-    }
+    } catch (err: any) { setAuthError(err.message); }
   };
 
-  // --- FIRSAT KAYDETME / GÜNCELLEME ---
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
@@ -74,15 +73,9 @@ export default function DashboardPage() {
       bitis_zamani: new Date(Date.now() + parseFloat(formData.sure_saat) * 60 * 60 * 1000).toISOString(),
       aktif_mi: true
     };
-
     try {
-      if (editingId) {
-        // EĞER DÜZENLEME MODUNDAYSA UPDATE YAP
-        await supabase.from("opportunities").update(payload).eq("id", editingId);
-      } else {
-        // YENİ EKLİYORSA INSERT YAP
-        await supabase.from("opportunities").insert([payload]);
-      }
+      if (editingId) await supabase.from("opportunities").update(payload).eq("id", editingId);
+      else await supabase.from("opportunities").insert([payload]);
       setIsModalOpen(false);
       setEditingId(null);
       setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
@@ -90,7 +83,6 @@ export default function DashboardPage() {
     } catch (e) { alert("Hata oluştu!"); }
   };
 
-  // --- FIRSAT SİLME ---
   const handleDelete = async (id: string) => {
     if (confirm("Bu fırsatı kalıcı olarak silmek istediğinize emin misiniz?")) {
       await supabase.from("opportunities").delete().eq("id", id);
@@ -98,21 +90,12 @@ export default function DashboardPage() {
     }
   };
 
-  // --- DÜZENLEME MODUNU AÇMA ---
   const openEditModal = (opp: any) => {
     setEditingId(opp.id);
-    setFormData({ 
-      baslik: opp.baslik, 
-      normal_fiyat: opp.normal_fiyat.toString(), 
-      indirimli_fiyat: opp.indirimli_fiyat.toString(), 
-      stok: opp.toplam_stok.toString(), 
-      foto_url: opp.foto_url || "", 
-      sure_saat: "24" // Varsayılan olarak 24'e çekilir, esnaf isterse değiştirir
-    });
+    setFormData({ baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), foto_url: opp.foto_url || "", sure_saat: "24" });
     setIsModalOpen(true);
   };
 
-  // --- KOD ONAYLAMA ---
   const handleApproveCode = async (orderId: string) => {
     if (confirm("Bu kodu onaylayıp satışı tamamlamak istiyor musunuz?")) {
       await supabase.from("siparisler").update({ durum: 'kullanildi' }).eq("id", orderId);
@@ -120,9 +103,19 @@ export default function DashboardPage() {
     }
   };
 
-  // --------------------------------------------------------------------------------
-  // GİRİŞ & KAYIT EKRANI
-  // --------------------------------------------------------------------------------
+  // KOD SÜRESİ DOLDUĞUNDA SİPARİŞİ İPTAL EDİP STOĞA GERİ KOYMA İŞLEMİ
+  const handleCancelExpiredCode = async (orderId: string, firsatId: string, guncelKalanStok: number) => {
+    if (confirm("Bu kodun süresi dolmuş. İptal edip ürünü tekrar vitrine (stoğa) eklemek istiyor musunuz?")) {
+      try {
+        // 1. Siparişin durumunu iptal yap (listeden düşer)
+        await supabase.from("siparisler").update({ durum: 'iptal' }).eq("id", orderId);
+        // 2. Fırsatın stoğunu 1 artır
+        await supabase.from("opportunities").update({ kalan_stok: guncelKalanStok + 1 }).eq("id", firsatId);
+        fetchData();
+      } catch (e) { alert("İşlem sırasında hata oluştu!"); }
+    }
+  };
+
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 font-sans">
@@ -132,21 +125,17 @@ export default function DashboardPage() {
             <h2 className="text-3xl font-black text-slate-800 tracking-tight">FırsatGo Esnaf</h2>
             <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mt-1">İş Ortağı Portalı</p>
           </div>
-
           <div className="flex bg-slate-100 rounded-2xl p-1 mb-8">
             <button onClick={() => {setAuthMode('login'); setAuthError("");}} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${authMode === 'login' ? 'bg-white text-orange-500 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Giriş Yap</button>
             <button onClick={() => {setAuthMode('register'); setAuthError("");}} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${authMode === 'register' ? 'bg-white text-orange-500 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Kayıt Ol</button>
           </div>
-
           <form onSubmit={handleAuth} className="space-y-4">
             {authMode === 'register' && (
               <input required placeholder="Dükkan Adı (Örn: Has Fırın)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.dukkan_adi} onChange={(e) => setAuthForm({...authForm, dukkan_adi: e.target.value})} />
             )}
             <input required type="tel" placeholder="Telefon Numarası" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.telefon} onChange={(e) => setAuthForm({...authForm, telefon: e.target.value})} />
             <input required type="password" placeholder="Şifre" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.sifre} onChange={(e) => setAuthForm({...authForm, sifre: e.target.value})} />
-            
             {authError && <p className="text-red-500 text-xs font-bold text-center">{authError}</p>}
-            
             <button type="submit" className="w-full bg-orange-500 text-white font-black py-4 rounded-[24px] shadow-xl shadow-orange-100 text-lg hover:bg-orange-600 transition-all active:scale-95 mt-4">
               {authMode === 'login' ? 'GİRİŞ YAP' : 'HESAP OLUŞTUR'}
             </button>
@@ -162,7 +151,6 @@ export default function DashboardPage() {
 
   return (
     <div className="p-4 sm:p-8 bg-slate-50 min-h-screen font-sans text-slate-900 pb-24">
-      {/* TEPE MENÜSÜ */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-6 mb-10 bg-white p-6 sm:p-8 rounded-[40px] shadow-sm border border-slate-100 text-center sm:text-left">
         <div className="flex items-center gap-4 flex-col sm:flex-row">
           <div className="w-16 h-16 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center text-2xl font-black">{currentUser.dukkan_adi.charAt(0)}</div>
@@ -180,7 +168,6 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* LİSTE */}
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4">Yayındaki Fırsatların</h2>
           {loading ? (
@@ -208,8 +195,6 @@ export default function DashboardPage() {
                     <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">Kalan Stok</p>
                     <p className="text-xl font-black text-slate-700">{opp.kalan_stok} / {opp.toplam_stok}</p>
                   </div>
-                  
-                  {/* İŞTE GERİ DÖNEN DÜZENLE VE SİL BUTONLARI */}
                   <div className="flex gap-2">
                     <button onClick={() => openEditModal(opp)} className="bg-blue-50 text-blue-600 w-12 h-12 rounded-xl flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all shadow-sm">
                       <span className="text-lg">✎</span>
@@ -224,7 +209,6 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* BEKLEYEN KODLAR */}
         <div className="space-y-4">
           <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4 flex items-center gap-2">Bekleyen Kodlar {bekleyenSiparisler.length > 0 && <span className="bg-red-500 text-white text-sm px-3 py-1 rounded-full">{bekleyenSiparisler.length}</span>}</h2>
           <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 p-6">
@@ -232,26 +216,55 @@ export default function DashboardPage() {
               <div className="text-center py-10 text-slate-400 font-bold">Şu an bekleyen müşteri yok.</div>
             ) : (
               <div className="space-y-4">
-                {bekleyenSiparisler.map((order) => (
-                  <div key={order.id} className="bg-slate-50 border border-slate-100 rounded-3xl p-5 relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{order.opportunities?.baslik}</p>
-                    <p className="text-2xl font-black text-slate-800 tracking-widest mb-4">{order.kod}</p>
-                    <button onClick={() => handleApproveCode(order.id)} className="w-full bg-emerald-50 text-emerald-600 font-black py-3 rounded-xl text-sm hover:bg-emerald-500 hover:text-white transition-colors">KODU ONAYLA ✔️</button>
-                  </div>
-                ))}
+                {bekleyenSiparisler.map((order) => {
+                  // SİPARİŞ İÇİN ZAMAN HESABI
+                  const siparisBitis = new Date(order.son_kullanma_zamani).getTime();
+                  const kalanSaniye = Math.floor((siparisBitis - now) / 1000);
+                  const siparisSuresiDoldu = kalanSaniye <= 0;
+                  const dk = Math.floor(Math.max(0, kalanSaniye) / 60).toString().padStart(2, '0');
+                  const sn = (Math.max(0, kalanSaniye) % 60).toString().padStart(2, '0');
+
+                  return (
+                    <div key={order.id} className={`border rounded-3xl p-5 relative overflow-hidden group transition-all ${siparisSuresiDoldu ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
+                      <div className={`absolute top-0 left-0 w-1 h-full ${siparisSuresiDoldu ? 'bg-red-500' : 'bg-orange-500'}`}></div>
+                      
+                      <div className="flex justify-between items-start mb-1">
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{order.opportunities?.baslik}</p>
+                        
+                        {/* KRONOMETRE ETİKETİ */}
+                        {siparisSuresiDoldu ? (
+                          <span className="text-[10px] font-black text-red-600 bg-red-100 px-2 py-1 rounded-md">SÜRESİ DOLDU</span>
+                        ) : (
+                          <span className="text-[10px] font-black text-orange-600 bg-orange-100 px-2 py-1 rounded-md flex items-center gap-1">
+                            <span className="animate-pulse">⏳</span> {dk}:{sn}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className={`text-2xl font-black tracking-widest mb-4 ${siparisSuresiDoldu ? 'text-red-800/50 line-through' : 'text-slate-800'}`}>{order.kod}</p>
+                      
+                      {siparisSuresiDoldu ? (
+                        <button onClick={() => handleCancelExpiredCode(order.id, order.firsat_id, order.opportunities?.kalan_stok)} className="w-full bg-red-600 text-white font-black py-3 rounded-xl text-sm hover:bg-red-700 transition-colors shadow-lg shadow-red-200">
+                          SİL & STOĞA GERİ EKLE 🔄
+                        </button>
+                      ) : (
+                        <button onClick={() => handleApproveCode(order.id)} className="w-full bg-emerald-50 text-emerald-600 font-black py-3 rounded-xl text-sm hover:bg-emerald-500 hover:text-white transition-colors">
+                          KODU ONAYLA ✔️
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
           <div className="bg-white rounded-t-[40px] sm:rounded-[40px] w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="p-6 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10">
-              {/* BAŞLIK DÜZENLEME Mİ YOKSA YENİ Mİ EKLENİYOR ONA GÖRE DEĞİŞİR */}
               <h3 className="text-xl font-black uppercase tracking-tight">{editingId ? "Fırsatı Düzenle" : "Yeni Fırsat Ekle"}</h3>
               <button onClick={() => setIsModalOpen(false)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/20">✕</button>
             </div>
