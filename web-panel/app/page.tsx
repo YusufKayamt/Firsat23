@@ -22,9 +22,12 @@ export default function HomePage() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [myOrders, setMyOrders] = useState<any[]>([]);
 
-  // YENİ: Kategori State'i
   const [seciliKategori, setSeciliKategori] = useState("Tümü");
   const kategoriler = ["Tümü", "Yemek", "Tatlı & İçecek", "Hizmet", "Diğer"];
+
+  // YENİ: Arama Çubuğu ve Dükkan Profili State'leri
+  const [aramaKelimesi, setAramaKelimesi] = useState("");
+  const [seciliDukkan, setSeciliDukkan] = useState<string | null>(null);
 
   const fetchPublicData = async (isSilent = false) => {
     try {
@@ -53,9 +56,7 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (showProfileModal) fetchMyOrders();
-  }, [showProfileModal]);
+  useEffect(() => { if (showProfileModal) fetchMyOrders(); }, [showProfileModal]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,22 +88,13 @@ export default function HomePage() {
   };
 
   const handleYakala = async (opp: any) => {
-    if (!currentCustomer) {
-      setShowAuthModal(true);
-      return;
-    }
-
+    if (!currentCustomer) { setShowAuthModal(true); return; }
     if (opp.kalan_stok <= 0) return;
     setProcessingId(opp.id);
 
     try {
       const limit = opp.kisi_basi_limit || 1;
-      const { data: userOrders } = await supabase.from("siparisler")
-        .select("id")
-        .eq("musteri_id", currentCustomer.id)
-        .eq("firsat_id", opp.id)
-        .neq("durum", "iptal");
-
+      const { data: userOrders } = await supabase.from("siparisler").select("id").eq("musteri_id", currentCustomer.id).eq("firsat_id", opp.id).neq("durum", "iptal");
       if (userOrders && userOrders.length >= limit) {
         alert(`Bu fırsattan kişi başı en fazla ${limit} adet yararlanabilirsiniz!`);
         setProcessingId(null);
@@ -110,37 +102,30 @@ export default function HomePage() {
       }
 
       const yeniStok = opp.kalan_stok - 1;
-      const { error: updateError } = await supabase.from("opportunities").update({ kalan_stok: yeniStok }).eq("id", opp.id);
-      if (updateError) throw updateError;
-
+      await supabase.from("opportunities").update({ kalan_stok: yeniStok }).eq("id", opp.id);
+      
       const rastgeleKod = "FRS-" + Math.random().toString(36).substring(2, 6).toUpperCase();
       const sonKullanma = new Date(Date.now() + 15 * 60 * 1000).toISOString(); 
 
-      const { error: siparisError } = await supabase.from("siparisler").insert([{ 
-        firsat_id: opp.id, kod: rastgeleKod, son_kullanma_zamani: sonKullanma, durum: 'bekliyor', musteri_id: currentCustomer.id 
-      }]);
-      if (siparisError) throw siparisError;
-
+      await supabase.from("siparisler").insert([{ firsat_id: opp.id, kod: rastgeleKod, son_kullanma_zamani: sonKullanma, durum: 'bekliyor', musteri_id: currentCustomer.id }]);
+      
       setOpportunities((mevcut) => mevcut.map((item) => item.id === opp.id ? { ...item, kalan_stok: yeniStok } : item));
       setSuccessCode({ baslik: opp.baslik, kod: rastgeleKod, bitis: sonKullanma });
-    } catch (error) {
-      alert("Fırsat yakalanamadı, internetini kontrol et.");
-    } finally {
-      setProcessingId(null);
-    }
+    } catch (error) { alert("Fırsat yakalanamadı, internetini kontrol et."); } 
+    finally { setProcessingId(null); }
   };
 
-  // YENİ: WhatsApp Paylaşım Fonksiyonu
   const handleShare = (opp: any) => {
     const mesaj = `🔥 Koş Fırsatı Kaçırma!\n\n🏪 ${opp.dukkan_adi || 'FırsatGo Esnafı'}\n🛍️ ${opp.baslik}\n💸 Sadece ${opp.indirimli_fiyat}₺ (Eski: ${opp.normal_fiyat}₺)\n\n📍 Hemen kodu al: https://firsatgo.online`;
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(mesaj)}`;
-    window.open(whatsappUrl, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(mesaj)}`, '_blank');
   };
 
-  // FIRSATLARI KATEGORİYE GÖRE FİLTRELE
-  const filteredOpportunities = seciliKategori === "Tümü" 
-    ? opportunities 
-    : opportunities.filter(opp => (opp.kategori || 'Yemek') === seciliKategori);
+  // YENİ: HEM ARAMA HEM KATEGORİ FİLTRESİ
+  const filteredOpportunities = opportunities.filter(opp => {
+    const kategoriUyumu = seciliKategori === "Tümü" || (opp.kategori || 'Yemek') === seciliKategori;
+    const aramaUyumu = opp.baslik.toLowerCase().includes(aramaKelimesi.toLowerCase()) || (opp.dukkan_adi || "").toLowerCase().includes(aramaKelimesi.toLowerCase());
+    return kategoriUyumu && aramaUyumu;
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 relative pb-24">
@@ -170,14 +155,23 @@ export default function HomePage() {
 
       <div className="max-w-xl mx-auto px-6 -mt-12 space-y-6">
         
-        {/* YENİ: KATEGORİ FİLTRE MENÜSÜ */}
-        <div className="bg-white p-3 rounded-3xl shadow-xl flex gap-2 overflow-x-auto scrollbar-hide border border-slate-100 relative z-20">
+        {/* YENİ: ARAMA ÇUBUĞU */}
+        <div className="relative z-20">
+          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+            <span className="text-xl">🔍</span>
+          </div>
+          <input 
+            type="text" 
+            placeholder="Lahmacun, kahve, fırın ara..." 
+            value={aramaKelimesi}
+            onChange={(e) => setAramaKelimesi(e.target.value)}
+            className="w-full bg-white border border-slate-100 shadow-xl rounded-3xl py-4 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-orange-500 transition-all"
+          />
+        </div>
+
+        <div className="bg-white p-3 rounded-3xl shadow-lg flex gap-2 overflow-x-auto scrollbar-hide border border-slate-100 relative z-20">
           {kategoriler.map((kat) => (
-            <button 
-              key={kat} 
-              onClick={() => setSeciliKategori(kat)}
-              className={`flex-none px-5 py-2.5 rounded-2xl font-black text-xs transition-all tracking-wider ${seciliKategori === kat ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
-            >
+            <button key={kat} onClick={() => setSeciliKategori(kat)} className={`flex-none px-5 py-2.5 rounded-2xl font-black text-xs transition-all tracking-wider ${seciliKategori === kat ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
               {kat}
             </button>
           ))}
@@ -186,7 +180,7 @@ export default function HomePage() {
         {loading ? (
           <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic mt-4">VİTRİN HAZIRLANIYOR...</div>
         ) : filteredOpportunities.length === 0 ? (
-          <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400 mt-4">Bu kategoride şu an aktif fırsat yok. 🥨</div>
+          <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400 mt-4">Aramanıza uygun fırsat bulunamadı. 🥨</div>
         ) : (
           filteredOpportunities.map((opp) => {
             const bitis = new Date(opp.bitis_zamani).getTime();
@@ -202,7 +196,6 @@ export default function HomePage() {
 
             return (
               <div key={opp.id} className={`bg-white rounded-[40px] shadow-xl overflow-hidden border-2 transition-all duration-300 relative ${tukendiMi ? 'border-slate-100 opacity-75' : 'border-white hover:-translate-y-1 shadow-slate-200/50'}`}>
-                
                 {opp.foto_url && (
                   <div className="w-full h-56 bg-slate-100 relative overflow-hidden">
                     <img src={opp.foto_url} alt={opp.baslik} className={`w-full h-full object-cover transition-transform duration-700 hover:scale-110 ${tukendiMi ? 'grayscale' : ''}`} />
@@ -228,14 +221,17 @@ export default function HomePage() {
 
                   <div className="flex justify-between items-start mb-4 pr-24">
                     <div className="flex flex-col gap-1">
-                      <span className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px] inline-block">
-                        {opp.dukkan_adi || "FırsatGo Esnafı"}
+                      {/* YENİ: TIKLANABİLİR DÜKKAN İSMİ */}
+                      <span 
+                        onClick={() => setSeciliDukkan(opp.dukkan_adi)}
+                        className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px] inline-block cursor-pointer hover:bg-orange-200 transition-colors"
+                        title="Dükkanın diğer fırsatlarını gör"
+                      >
+                        🏪 {opp.dukkan_adi || "FırsatGo Esnafı"}
                       </span>
-                      {/* Kategori Etiketi */}
                       <span className="text-[10px] font-bold text-slate-400 px-1">{opp.kategori || 'Yemek'}</span>
                     </div>
                     
-                    {/* YENİ: WHATSAPP PAYLAŞ BUTONU */}
                     <button onClick={() => handleShare(opp)} className="absolute top-6 right-8 bg-green-100 text-green-600 p-3 rounded-2xl hover:bg-green-500 hover:text-white transition-all shadow-sm group">
                       <span className="text-xl group-hover:animate-bounce inline-block">💬</span>
                     </button>
@@ -263,6 +259,36 @@ export default function HomePage() {
           })
         )}
       </div>
+
+      {/* YENİ: DÜKKAN PROFİLİ (VİTRİN) MODALI */}
+      {seciliDukkan && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-white rounded-t-[40px] sm:rounded-[40px] w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10">
+              <h3 className="text-xl font-black uppercase tracking-tight">🏪 Dükkan Vitrini</h3>
+              <button onClick={() => setSeciliDukkan(null)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/20">✕</button>
+            </div>
+            
+            <div className="p-6 border-b border-slate-100 bg-orange-50 text-center">
+              <div className="w-16 h-16 bg-white text-orange-500 rounded-full flex items-center justify-center text-3xl font-black mx-auto mb-2 shadow-sm">{seciliDukkan.charAt(0)}</div>
+              <h2 className="text-2xl font-black text-slate-800">{seciliDukkan}</h2>
+              <p className="text-orange-600 font-bold text-xs uppercase tracking-widest mt-1">Tüm Aktif Fırsatları</p>
+            </div>
+
+            <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar bg-slate-50 flex-1">
+              {opportunities.filter(o => o.dukkan_adi === seciliDukkan).map(opp => (
+                <div key={opp.id} className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex justify-between items-center">
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1">{opp.baslik}</h4>
+                    <span className="text-orange-600 font-black">{opp.indirimli_fiyat} ₺</span>
+                  </div>
+                  <button onClick={() => { setSeciliDukkan(null); handleYakala(opp); }} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-orange-500 transition-colors">YAKALA</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PROFİL MODALI */}
       {showProfileModal && currentCustomer && (

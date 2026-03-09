@@ -12,10 +12,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata = {
+// YENİ: Manifest dosyası eklendi (Uygulama kimliği)
+export const metadata: Metadata = {
   title: 'FırsatGoOnline | Anlık Fırsat Platformu',
   description: 'Anlık fırsatları yakala, bütçeni koru!',
-}
+  manifest: '/manifest.json',
+};
+
+// YENİ: Telefonun üst çubuğunu FırsatGo turuncusu yapar
+export const viewport = {
+  themeColor: '#f97316',
+};
 
 export default function RootLayout({
   children,
@@ -23,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="tr">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
