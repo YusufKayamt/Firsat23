@@ -10,23 +10,22 @@ export default function DashboardPage() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ dukkan_adi: "", telefon: "", sifre: "" });
   const [authError, setAuthError] = useState("");
-  const [rememberMe, setRememberMe] = useState(true); // YENİ: Beni Hatırla state'i
+  const [rememberMe, setRememberMe] = useState(true);
 
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
+  
+  // YENİ: kisi_basi_limit state'i eklendi (Varsayılan 1)
+  const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1" });
   
   const [now, setNow] = useState(Date.now());
 
-  // YENİ: Sayfa açıldığında hafızada esnaf var mı diye kontrol et
   useEffect(() => {
     const savedUser = localStorage.getItem("firsatgo_esnaf");
-    if (savedUser) {
-      setCurrentUser(JSON.parse(savedUser));
-    }
+    if (savedUser) setCurrentUser(JSON.parse(savedUser));
   }, []);
 
   const fetchData = async () => {
@@ -66,17 +65,11 @@ export default function DashboardPage() {
       }
       
       setCurrentUser(loggedInUser);
-      // YENİ: Beni Hatırla seçiliyse tarayıcıya kaydet
-      if (rememberMe) {
-        localStorage.setItem("firsatgo_esnaf", JSON.stringify(loggedInUser));
-      } else {
-        localStorage.removeItem("firsatgo_esnaf");
-      }
-
+      if (rememberMe) localStorage.setItem("firsatgo_esnaf", JSON.stringify(loggedInUser));
+      else localStorage.removeItem("firsatgo_esnaf");
     } catch (err: any) { setAuthError(err.message); }
   };
 
-  // YENİ: Çıkış yaparken hafızayı temizle
   const handleLogout = () => {
     localStorage.removeItem("firsatgo_esnaf");
     setCurrentUser(null);
@@ -93,6 +86,7 @@ export default function DashboardPage() {
       toplam_stok: parseInt(formData.stok),
       kalan_stok: parseInt(formData.stok),
       foto_url: formData.foto_url,
+      kisi_basi_limit: parseInt(formData.kisi_basi_limit), // YENİ: Kota veritabanına gidiyor
       bitis_zamani: new Date(Date.now() + parseFloat(formData.sure_saat) * 60 * 60 * 1000).toISOString(),
       aktif_mi: true
     };
@@ -101,7 +95,7 @@ export default function DashboardPage() {
       else await supabase.from("opportunities").insert([payload]);
       setIsModalOpen(false);
       setEditingId(null);
-      setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
+      setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1" });
       fetchData();
     } catch (e) { alert("Hata oluştu!"); }
   };
@@ -115,7 +109,12 @@ export default function DashboardPage() {
 
   const openEditModal = (opp: any) => {
     setEditingId(opp.id);
-    setFormData({ baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), foto_url: opp.foto_url || "", sure_saat: "24" });
+    setFormData({ 
+      baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), 
+      indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), 
+      foto_url: opp.foto_url || "", sure_saat: "24",
+      kisi_basi_limit: (opp.kisi_basi_limit || 1).toString() // YENİ: Düzenlerken kotayı çek
+    });
     setIsModalOpen(true);
   };
 
@@ -155,13 +154,10 @@ export default function DashboardPage() {
             )}
             <input required type="tel" placeholder="Telefon Numarası" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.telefon} onChange={(e) => setAuthForm({...authForm, telefon: e.target.value})} />
             <input required type="password" placeholder="Şifre" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.sifre} onChange={(e) => setAuthForm({...authForm, sifre: e.target.value})} />
-            
-            {/* YENİ: Beni Hatırla Kutucuğu */}
             <div className="flex items-center gap-2 px-2 py-1">
               <input type="checkbox" id="remember" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="w-4 h-4 text-orange-500 rounded border-slate-300 focus:ring-orange-500"/>
               <label htmlFor="remember" className="text-sm font-bold text-slate-500">Beni Hatırla</label>
             </div>
-
             {authError && <p className="text-red-500 text-xs font-bold text-center">{authError}</p>}
             <button type="submit" className="w-full bg-orange-500 text-white font-black py-4 rounded-[24px] shadow-xl shadow-orange-100 text-lg hover:bg-orange-600 transition-all active:scale-95 mt-4">
               {authMode === 'login' ? 'GİRİŞ YAP' : 'HESAP OLUŞTUR'}
@@ -187,10 +183,9 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center justify-center gap-3 w-full sm:w-auto">
-          <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">
+          <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">
             + YENİ FIRSAT
           </button>
-          {/* ÇIKIŞ YAPILDIĞINDA HAFIZAYI TEMİZLE */}
           <button onClick={handleLogout} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all h-12 text-sm whitespace-nowrap">ÇIKIŞ</button>
         </div>
       </div>
@@ -210,7 +205,10 @@ export default function DashboardPage() {
                     {opp.foto_url ? <img src={opp.foto_url} alt={opp.baslik} className="w-full h-full object-cover" /> : <span className="text-3xl">📷</span>}
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-xl font-black text-slate-800 uppercase leading-tight">{opp.baslik}</h3>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-xl font-black text-slate-800 uppercase leading-tight">{opp.baslik}</h3>
+                      <span className="bg-slate-100 text-slate-500 text-[10px] font-black px-2 py-1 rounded-md">Limit: {opp.kisi_basi_limit || 1}</span>
+                    </div>
                     <div className="flex items-center gap-4 mt-2">
                       <span className="text-orange-600 font-black text-lg">{opp.indirimli_fiyat} ₺</span>
                       <span className="text-slate-300 line-through font-bold text-xs">{opp.normal_fiyat} ₺</span>
@@ -288,17 +286,34 @@ export default function DashboardPage() {
             </div>
             <div className="overflow-y-auto p-6 space-y-5 custom-scrollbar">
               <input required placeholder="Fırsat Başlığı (Örn: Gece Lahmacunu)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={formData.baslik} onChange={(e) => setFormData({...formData, baslik: e.target.value})} />
-              <input placeholder="Fotoğraf Linki (İsteğe Bağlı)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={formData.foto_url} onChange={(e) => setFormData({...formData, foto_url: e.target.value})} />
               
               <div className="grid grid-cols-2 gap-4">
                 <input required type="number" placeholder="Eski Fiyat (₺)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
                 <input required type="number" placeholder="Fırsat Fiyatı (₺)" className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 font-black outline-none focus:border-orange-500 text-orange-600" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
               </div>
               
-              <input required type="number" placeholder="Toplam Stok Adedi" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Toplam Stok</label>
+                  <input required type="number" placeholder="Adet" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+                </div>
+                
+                {/* YENİ EKLENEN KİŞİ BAŞI LİMİT SEÇİCİ */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Kişi Başı Limit</label>
+                  <select required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-700" value={formData.kisi_basi_limit} onChange={(e) => setFormData({...formData, kisi_basi_limit: e.target.value})}>
+                    <option value="1">1 Adet Alabilir</option>
+                    <option value="2">2 Adet Alabilir</option>
+                    <option value="3">3 Adet Alabilir</option>
+                    <option value="4">4 Adet Alabilir</option>
+                    <option value="5">5 Adet Alabilir</option>
+                    <option value="100">Sınırsız Alabilir</option>
+                  </select>
+                </div>
+              </div>
 
               <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Fırsat Süresi Seçin</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 pl-1">Fırsat Süresi Seçin</label>
                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                   {sureSecenekleri.map((val) => (
                     <button key={val} type="button" onClick={() => setFormData({...formData, sure_saat: val.toString()})} className={`flex-none px-5 py-3 rounded-2xl font-black text-sm transition-all border-2 ${formData.sure_saat === val.toString() ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-200' : 'bg-white border-slate-100 text-slate-500 hover:border-orange-300'}`}>

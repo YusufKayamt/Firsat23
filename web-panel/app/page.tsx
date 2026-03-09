@@ -12,13 +12,16 @@ export default function HomePage() {
   const [successCode, setSuccessCode] = useState<{baslik: string, kod: string, bitis: string} | null>(null);
   const [now, setNow] = useState(Date.now()); 
 
-  // --- MÜŞTERİ KİMLİK DOĞRULAMA (AUTH) ---
   const [currentCustomer, setCurrentCustomer] = useState<any>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ ad_soyad: "", telefon: "", sifre: "" });
   const [authError, setAuthError] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+
+  // YENİ: Müşteri Profili Modal State'leri
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [myOrders, setMyOrders] = useState<any[]>([]);
 
   const fetchPublicData = async (isSilent = false) => {
     try {
@@ -30,26 +33,29 @@ export default function HomePage() {
     finally { if (!isSilent) setLoading(false); }
   };
 
+  // YENİ: Müşterinin aldığı kodları veritabanından çeker
+  const fetchMyOrders = async () => {
+    if (!currentCustomer) return;
+    try {
+      const { data } = await supabase.from("siparisler").select("*, opportunities(baslik, dukkan_adi)").eq("musteri_id", currentCustomer.id).order("olusturma_zamani", { ascending: false });
+      setMyOrders(data || []);
+    } catch (e) { console.error(e); }
+  };
+
   useEffect(() => {
     fetchPublicData();
-    const handleVisibility = () => fetchPublicData(true);
-    window.addEventListener("focus", handleVisibility);
-    window.addEventListener("pageshow", handleVisibility);
-
-    // MÜŞTERİ HAFIZASI (Beni Hatırla) KONTROLÜ
     const savedCustomer = localStorage.getItem("firsatgo_musteri");
     if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
 
     const timer = setInterval(() => setNow(Date.now()), 1000);
-
-    return () => {
-      window.removeEventListener("focus", handleVisibility);
-      window.removeEventListener("pageshow", handleVisibility);
-      clearInterval(timer);
-    };
+    return () => clearInterval(timer);
   }, []);
 
-  // MÜŞTERİ GİRİŞ/KAYIT İŞLEMİ
+  // Profil modalı açılınca kodları çek
+  useEffect(() => {
+    if (showProfileModal) fetchMyOrders();
+  }, [showProfileModal]);
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
@@ -76,10 +82,10 @@ export default function HomePage() {
   const handleLogout = () => {
     localStorage.removeItem("firsatgo_musteri");
     setCurrentCustomer(null);
+    setShowProfileModal(false); // Çıkış yapınca profili kapat
   };
 
   const handleYakala = async (opp: any) => {
-    // 1. MÜŞTERİ GİRİŞ YAPMAMIŞSA, EKRANA GİRİŞ PENCERESİNİ ÇIKAR
     if (!currentCustomer) {
       setShowAuthModal(true);
       return;
@@ -87,16 +93,30 @@ export default function HomePage() {
 
     if (opp.kalan_stok <= 0) return;
     setProcessingId(opp.id);
-    const yeniStok = opp.kalan_stok - 1;
 
     try {
+      // YENİ KOTA KONTROLÜ: Müşteri bu fırsattan daha önce kaç tane kod almış? (İptal edilenler hariç)
+      const limit = opp.kisi_basi_limit || 1;
+      const { data: userOrders } = await supabase.from("siparisler")
+        .select("id")
+        .eq("musteri_id", currentCustomer.id)
+        .eq("firsat_id", opp.id)
+        .neq("durum", "iptal");
+
+      if (userOrders && userOrders.length >= limit) {
+        alert(`Bu fırsattan kişi başı en fazla ${limit} adet yararlanabilirsiniz!`);
+        setProcessingId(null);
+        return;
+      }
+
+      // KOTA AŞILMADIYSA DEVAM ET
+      const yeniStok = opp.kalan_stok - 1;
       const { error: updateError } = await supabase.from("opportunities").update({ kalan_stok: yeniStok }).eq("id", opp.id);
       if (updateError) throw updateError;
 
       const rastgeleKod = "FRS-" + Math.random().toString(36).substring(2, 6).toUpperCase();
       const sonKullanma = new Date(Date.now() + 15 * 60 * 1000).toISOString(); 
 
-      // 2. SİPARİŞİ OLUŞTURURKEN MÜŞTERİ ID'SİNİ DE EKLİYORUZ
       const { error: siparisError } = await supabase.from("siparisler").insert([{ 
         firsat_id: opp.id, 
         kod: rastgeleKod, 
@@ -118,16 +138,16 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 relative pb-24">
       
-      {/* TEPE KISMI - PROFİL VE LOGO */}
       <div className="bg-orange-500 p-8 pb-20 rounded-b-[50px] shadow-2xl shadow-orange-100 text-center relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent"></div>
         
         {/* ÜST BAR (Giriş Yap / Profil) */}
         <div className="absolute top-4 right-6 z-20">
           {currentCustomer ? (
-            <div className="flex flex-col items-end bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 text-white">
-              <span className="text-sm font-black text-white">{currentCustomer.ad_soyad}</span>
-              <button onClick={handleLogout} className="text-[10px] uppercase font-bold text-orange-200 hover:text-white">Çıkış Yap</button>
+            // YENİ: Profile Tıklanabilir Yapı
+            <div onClick={() => setShowProfileModal(true)} className="flex flex-col items-end bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 text-white cursor-pointer hover:bg-white/20 transition-all shadow-lg">
+              <span className="text-sm font-black text-white flex items-center gap-2">{currentCustomer.ad_soyad} 👤</span>
+              <span className="text-[10px] uppercase font-bold text-orange-200">Kodlarım & Profil</span>
             </div>
           ) : (
             <button onClick={() => setShowAuthModal(true)} className="bg-white text-orange-600 font-black px-5 py-2.5 rounded-2xl shadow-lg hover:scale-105 transition-transform text-sm">GİRİŞ YAP</button>
@@ -143,7 +163,6 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* VİTRİN KISMI */}
       <div className="max-w-xl mx-auto px-6 -mt-12 space-y-8">
         {loading ? (
           <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic">VİTRİN HAZIRLANIYOR...</div>
@@ -213,7 +232,71 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* MÜŞTERİ GİRİŞ / KAYIT MODALI */}
+      {/* YENİ: MÜŞTERİ PROFİLİ (KODLARIM) MODALI */}
+      {showProfileModal && currentCustomer && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-white rounded-t-[40px] sm:rounded-[40px] w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10">
+              <h3 className="text-xl font-black uppercase tracking-tight">Profil & Cüzdan</h3>
+              <button onClick={() => setShowProfileModal(false)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/20">✕</button>
+            </div>
+            
+            <div className="p-6 border-b border-slate-100 bg-slate-50">
+              <div className="w-16 h-16 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-2">{currentCustomer.ad_soyad.charAt(0)}</div>
+              <h2 className="text-xl font-black text-center text-slate-800">{currentCustomer.ad_soyad}</h2>
+              <p className="text-center text-slate-400 font-mono text-sm">{currentCustomer.telefon}</p>
+              <button onClick={handleLogout} className="mt-4 w-full bg-red-50 text-red-600 font-black py-2 rounded-xl text-xs hover:bg-red-500 hover:text-white transition-colors">HESAPTAN ÇIKIŞ YAP</button>
+            </div>
+
+            <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar bg-white flex-1">
+              <h4 className="font-black text-slate-400 uppercase tracking-widest text-xs mb-4">Aldığım Kodlar</h4>
+              {myOrders.length === 0 ? (
+                <div className="text-center text-slate-400 py-10 font-medium">Henüz hiç indirim kodu almadınız.</div>
+              ) : (
+                myOrders.map(order => {
+                  const siparisBitis = new Date(order.son_kullanma_zamani).getTime();
+                  const kalanSaniye = Math.floor((siparisBitis - now) / 1000);
+                  const siparisSuresiDoldu = kalanSaniye <= 0;
+                  const dk = Math.floor(Math.max(0, kalanSaniye) / 60).toString().padStart(2, '0');
+                  const sn = (Math.max(0, kalanSaniye) % 60).toString().padStart(2, '0');
+
+                  let durumGorunumu = "";
+                  if (order.durum === 'kullanildi') durumGorunumu = "bg-emerald-50 border-emerald-200 opacity-60";
+                  else if (order.durum === 'iptal' || siparisSuresiDoldu) durumGorunumu = "bg-red-50 border-red-100 opacity-60";
+                  else durumGorunumu = "bg-orange-50 border-orange-300 shadow-md";
+
+                  return (
+                    <div key={order.id} className={`border-2 rounded-3xl p-5 relative overflow-hidden transition-all ${durumGorunumu}`}>
+                      <div className="flex justify-between items-start mb-2">
+                        <p className="text-xs font-black text-slate-500 uppercase">{order.opportunities?.dukkan_adi}</p>
+                        
+                        {/* DURUM ROZETİ */}
+                        {order.durum === 'kullanildi' ? (
+                          <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md">KULLANILDI ✔️</span>
+                        ) : order.durum === 'iptal' || siparisSuresiDoldu ? (
+                          <span className="text-[10px] font-black text-red-600 bg-red-100 px-2 py-1 rounded-md">SÜRE DOLDU ❌</span>
+                        ) : (
+                          <span className="text-[10px] font-black text-orange-600 bg-orange-100 px-2 py-1 rounded-md flex items-center gap-1">
+                            <span className="animate-pulse">⏳</span> KALAN: {dk}:{sn}
+                          </span>
+                        )}
+                      </div>
+                      
+                      <h4 className="font-bold text-slate-800 text-sm mb-3">{order.opportunities?.baslik}</h4>
+                      
+                      <div className="bg-white/80 border border-slate-200 rounded-2xl p-3 text-center">
+                         <span className={`text-2xl font-black tracking-widest ${order.durum === 'bekliyor' && !siparisSuresiDoldu ? 'text-orange-600' : 'text-slate-400 line-through'}`}>{order.kod}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MÜŞTERİ GİRİŞ MODALI */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative">
@@ -233,7 +316,7 @@ export default function HomePage() {
               <input required type="tel" placeholder="Telefon Numarası" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.telefon} onChange={(e) => setAuthForm({...authForm, telefon: e.target.value})} />
               <input required type="password" placeholder="Şifre" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.sifre} onChange={(e) => setAuthForm({...authForm, sifre: e.target.value})} />
               <div className="flex items-center gap-2 px-2 py-1">
-                <input type="checkbox" id="rememberMe" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="w-4 h-4 text-orange-500" />
+                <input type="checkbox" id="rememberMe" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="w-4 h-4 text-orange-500 rounded border-slate-300 focus:ring-orange-500" />
                 <label htmlFor="rememberMe" className="text-sm font-bold text-slate-500">Beni Hatırla</label>
               </div>
               {authError && <p className="text-red-500 text-xs font-bold text-center">{authError}</p>}
@@ -245,7 +328,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* BAŞARILI KOD EKRANI */}
       {successCode && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm text-center shadow-2xl">
@@ -285,7 +367,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ALT BAR */}
       <div className="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-xl border border-white p-4 rounded-[32px] shadow-2xl flex justify-around items-center z-40">
         <button onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})} className="text-orange-500 font-black text-xs uppercase tracking-widest flex flex-col items-center gap-1"><span className="text-lg">🏪</span> Vitrin</button>
         <div className="w-px h-6 bg-slate-200"></div>
