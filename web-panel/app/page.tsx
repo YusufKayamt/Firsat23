@@ -50,18 +50,25 @@ export default function HomePage() {
     } catch (e) { console.error(e); }
   };
 
-  useEffect(() => {
+useEffect(() => {
     fetchPublicData();
     const savedCustomer = localStorage.getItem("firsatgo_musteri");
     if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
 
     const timer = setInterval(() => setNow(Date.now()), 1000);
 
-    // YENİ: TARAYICININ İNDİRME İSTEĞİNİ YAKALAYAN KOD
+    // YENİ: MOTORU ÇALIŞTIRMA KODU BURAYA EKLENDİ!
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').then(() => {
+        console.log("Motor çalıştı!");
+      });
+    }
+
+    // TARAYICININ İNDİRME İSTEĞİNİ YAKALAYAN KOD
     const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault(); // Tarayıcının kendi banner'ını engelle
-      setDeferredPrompt(e); // Olayı kaydet
-      setShowInstallBtn(true); // Bizim butonumuzu göster
+      e.preventDefault(); 
+      setDeferredPrompt(e); 
+      setShowInstallBtn(true); 
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
