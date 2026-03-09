@@ -17,23 +17,20 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null); // Düzenleme modu için
   const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24" });
 
   const fetchData = async () => {
     if (!currentUser) return;
     try {
       setLoading(true);
-      // SADECE GİRİŞ YAPAN ESNAFIN KENDİ FIRSATLARINI GETİRİR!
       const { data: oppData, error: oppError } = await supabase.from("opportunities").select("*").eq("esnaf_id", currentUser.id).order("olusturma_zamani", { ascending: false });
       if (oppError) throw oppError;
       setOpportunities(oppData || []);
 
-      // Şimdilik bekleyen siparişleri basitçe çekiyoruz
       const { data: orderData, error: orderError } = await supabase.from("siparisler").select("*, opportunities!inner(baslik, esnaf_id)").eq("opportunities.esnaf_id", currentUser.id).order("olusturma_zamani", { ascending: false });
       if (orderError) throw orderError;
       setOrders(orderData || []);
-
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -62,11 +59,12 @@ export default function DashboardPage() {
     }
   };
 
+  // --- FIRSAT KAYDETME / GÜNCELLEME ---
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
       esnaf_id: currentUser.id,
-      dukkan_adi: currentUser.dukkan_adi, // Dükkan adı otomatik hesaptan çekilir!
+      dukkan_adi: currentUser.dukkan_adi,
       baslik: formData.baslik,
       normal_fiyat: parseFloat(formData.normal_fiyat),
       indirimli_fiyat: parseFloat(formData.indirimli_fiyat),
@@ -79,8 +77,10 @@ export default function DashboardPage() {
 
     try {
       if (editingId) {
+        // EĞER DÜZENLEME MODUNDAYSA UPDATE YAP
         await supabase.from("opportunities").update(payload).eq("id", editingId);
       } else {
+        // YENİ EKLİYORSA INSERT YAP
         await supabase.from("opportunities").insert([payload]);
       }
       setIsModalOpen(false);
@@ -90,13 +90,29 @@ export default function DashboardPage() {
     } catch (e) { alert("Hata oluştu!"); }
   };
 
+  // --- FIRSAT SİLME ---
   const handleDelete = async (id: string) => {
-    if (confirm("Bu fırsatı silmek istediğine emin misin?")) {
+    if (confirm("Bu fırsatı kalıcı olarak silmek istediğinize emin misiniz?")) {
       await supabase.from("opportunities").delete().eq("id", id);
       fetchData();
     }
   };
 
+  // --- DÜZENLEME MODUNU AÇMA ---
+  const openEditModal = (opp: any) => {
+    setEditingId(opp.id);
+    setFormData({ 
+      baslik: opp.baslik, 
+      normal_fiyat: opp.normal_fiyat.toString(), 
+      indirimli_fiyat: opp.indirimli_fiyat.toString(), 
+      stok: opp.toplam_stok.toString(), 
+      foto_url: opp.foto_url || "", 
+      sure_saat: "24" // Varsayılan olarak 24'e çekilir, esnaf isterse değiştirir
+    });
+    setIsModalOpen(true);
+  };
+
+  // --- KOD ONAYLAMA ---
   const handleApproveCode = async (orderId: string) => {
     if (confirm("Bu kodu onaylayıp satışı tamamlamak istiyor musunuz?")) {
       await supabase.from("siparisler").update({ durum: 'kullanildi' }).eq("id", orderId);
@@ -105,7 +121,7 @@ export default function DashboardPage() {
   };
 
   // --------------------------------------------------------------------------------
-  // GİRİŞ & KAYIT EKRANI (MÜTHİŞ TASARIM)
+  // GİRİŞ & KAYIT EKRANI
   // --------------------------------------------------------------------------------
   if (!currentUser) {
     return (
@@ -142,7 +158,7 @@ export default function DashboardPage() {
   }
 
   const bekleyenSiparisler = orders.filter(o => o.durum === 'bekliyor');
-  const sureSecenekleri = [0.5, 1, 1.5, 2, 3, 5, 12, 24]; // Şık butonlar için süreler
+  const sureSecenekleri = [0.5, 1, 1.5, 2, 3, 5, 12, 24]; 
 
   return (
     <div className="p-4 sm:p-8 bg-slate-50 min-h-screen font-sans text-slate-900 pb-24">
@@ -173,7 +189,7 @@ export default function DashboardPage() {
             <div className="bg-white p-10 rounded-[40px] text-center font-bold text-slate-400 border border-slate-100">Henüz fırsat eklemedin. Müşteriler seni bekliyor!</div>
           ) : (
             opportunities.map((opp) => (
-              <div key={opp.id} className="bg-white p-5 sm:p-6 rounded-[40px] shadow-sm border border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 group">
+              <div key={opp.id} className="bg-white p-5 sm:p-6 rounded-[40px] shadow-sm border border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 group hover:border-orange-200 transition-colors">
                 <div className="flex items-center gap-4 sm:gap-6 w-full sm:w-auto">
                   <div className="w-20 h-20 rounded-2xl bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0">
                     {opp.foto_url ? <img src={opp.foto_url} alt={opp.baslik} className="w-full h-full object-cover" /> : <span className="text-3xl">📷</span>}
@@ -186,12 +202,22 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </div>
+                
                 <div className="flex items-center justify-between w-full sm:w-auto gap-4 sm:gap-8 border-t sm:border-0 border-slate-100 pt-4 sm:pt-0">
                   <div className="text-left sm:text-right">
                     <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">Kalan Stok</p>
                     <p className="text-xl font-black text-slate-700">{opp.kalan_stok} / {opp.toplam_stok}</p>
                   </div>
-                  <button onClick={() => handleDelete(opp.id)} className="bg-red-50 text-red-600 w-10 h-10 rounded-xl flex items-center justify-center hover:bg-red-600 hover:text-white transition-all">🗑</button>
+                  
+                  {/* İŞTE GERİ DÖNEN DÜZENLE VE SİL BUTONLARI */}
+                  <div className="flex gap-2">
+                    <button onClick={() => openEditModal(opp)} className="bg-blue-50 text-blue-600 w-12 h-12 rounded-xl flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all shadow-sm">
+                      <span className="text-lg">✎</span>
+                    </button>
+                    <button onClick={() => handleDelete(opp.id)} className="bg-red-50 text-red-600 w-12 h-12 rounded-xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm">
+                      <span className="text-lg">🗑</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ))
@@ -220,12 +246,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* YENİ FIRSAT MODALI (ŞIK SÜRE SEÇİCİLİ) */}
+      {/* MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
           <div className="bg-white rounded-t-[40px] sm:rounded-[40px] w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="p-6 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10">
-              <h3 className="text-xl font-black uppercase tracking-tight">Yeni Fırsat Ekle</h3>
+              {/* BAŞLIK DÜZENLEME Mİ YOKSA YENİ Mİ EKLENİYOR ONA GÖRE DEĞİŞİR */}
+              <h3 className="text-xl font-black uppercase tracking-tight">{editingId ? "Fırsatı Düzenle" : "Yeni Fırsat Ekle"}</h3>
               <button onClick={() => setIsModalOpen(false)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/20">✕</button>
             </div>
             <div className="overflow-y-auto p-6 space-y-5 custom-scrollbar">
@@ -239,7 +266,6 @@ export default function DashboardPage() {
               
               <input required type="number" placeholder="Toplam Stok Adedi" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
 
-              {/* İŞTE O ŞIK, YATAY KAYDIRILABİLİR BUTONLU SÜRE SEÇİCİ */}
               <div>
                 <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Fırsat Süresi Seçin</label>
                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
@@ -257,7 +283,7 @@ export default function DashboardPage() {
               </div>
               
               <button type="button" onClick={handleSave} className="w-full bg-slate-900 text-white font-black py-5 rounded-[24px] shadow-xl text-lg hover:bg-slate-800 transition-all active:scale-95 mt-4">
-                YAYINLA 🚀
+                {editingId ? "GÜNCELLE ✅" : "YAYINLA 🚀"}
               </button>
             </div>
           </div>
