@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "../utils/supabase/client";
 
 const supabase = createClient();
-const ADMIN_PIN = "232323"; // PATRON ŞİFRESİ
+const ADMIN_PIN = "232323"; 
 
 export default function AdminPage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -14,6 +14,11 @@ export default function AdminPage() {
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [esnaflar, setEsnaflar] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // DÜZENLEME İÇİN GEREKLİ STATE'LER
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "" });
 
   const fetchData = async () => {
     try {
@@ -47,6 +52,30 @@ export default function AdminPage() {
       await supabase.from("opportunities").delete().eq("id", id);
       fetchData(); 
     }
+  };
+
+  // PATRON İÇİN DÜZENLEME PENCERESİNİ AÇMA
+  const openEditModal = (opp: any) => {
+    setEditingId(opp.id);
+    setFormData({ baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), foto_url: opp.foto_url || "" });
+    setIsEditModalOpen(true);
+  };
+
+  // PATRON İÇİN KAYDETME
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await supabase.from("opportunities").update({
+        baslik: formData.baslik,
+        normal_fiyat: parseFloat(formData.normal_fiyat),
+        indirimli_fiyat: parseFloat(formData.indirimli_fiyat),
+        toplam_stok: parseInt(formData.stok),
+        kalan_stok: parseInt(formData.stok), // Stoğu sıfırlıyoruz gibi düşün, basit tutuyoruz
+        foto_url: formData.foto_url
+      }).eq("id", editingId);
+      setIsEditModalOpen(false);
+      fetchData();
+    } catch (error) { alert("Hata oluştu!"); }
   };
 
   if (!isUnlocked) {
@@ -86,7 +115,10 @@ export default function AdminPage() {
                   <h3 className="font-bold text-slate-800">{opp.baslik}</h3>
                   <p className="text-xs text-slate-500">Stok: {opp.kalan_stok}/{opp.toplam_stok} | Fiyat: {opp.indirimli_fiyat}₺</p>
                 </div>
-                <button onClick={() => handleDelete(opp.id)} className="bg-red-100 text-red-600 p-3 rounded-xl hover:bg-red-600 hover:text-white transition-all font-black text-xs">SİL</button>
+                <div className="flex gap-2">
+                  <button onClick={() => openEditModal(opp)} className="bg-blue-100 text-blue-600 px-3 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all font-black text-xs">✎ DÜZENLE</button>
+                  <button onClick={() => handleDelete(opp.id)} className="bg-red-100 text-red-600 px-3 py-2 rounded-xl hover:bg-red-600 hover:text-white transition-all font-black text-xs">SİL</button>
+                </div>
               </div>
             ))}
           </div>
@@ -104,6 +136,27 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+
+      {/* PATRON DÜZENLEME MODALI */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[40px] w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="p-6 bg-red-600 text-white flex justify-between items-center">
+              <h3 className="text-xl font-black uppercase tracking-tight">Fırsata Müdahale Et</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <input placeholder="Başlık" className="w-full bg-slate-50 border-2 rounded-2xl p-4 font-bold outline-none" value={formData.baslik} onChange={(e) => setFormData({...formData, baslik: e.target.value})} />
+              <div className="grid grid-cols-2 gap-4">
+                <input placeholder="Eski Fiyat" type="number" className="w-full bg-slate-50 border-2 rounded-2xl p-4 font-bold outline-none" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
+                <input placeholder="Yeni Fiyat" type="number" className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 font-black outline-none text-orange-600" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
+              </div>
+              <input placeholder="Stok" type="number" className="w-full bg-slate-50 border-2 rounded-2xl p-4 font-bold outline-none" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
+              <button onClick={handleSave} className="w-full bg-red-600 text-white font-black py-4 rounded-2xl shadow-xl hover:bg-red-700 mt-2">GÜNCELLE ✅</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
