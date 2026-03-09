@@ -18,11 +18,15 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  // YENİ: Kategori state'i eklendi (Varsayılan: Yemek)
-  const [formData, setFormData] = useState({ 
-    baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", 
-    foto_url: "", sure_saat: "24", kisi_basi_limit: "1", kategori: "Yemek" 
-  });
+  const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1", kategori: "Yemek" });
+  
+  // YENİ: Fotoğraf Yükleme State'leri
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // YENİ: İstatistik State'leri
+  const [gunlukKullanim, setGunlukKullanim] = useState(0);
+  const [gunlukKazanc, setGunlukKazanc] = useState(0);
   
   const [now, setNow] = useState(Date.now());
 
@@ -39,9 +43,20 @@ export default function DashboardPage() {
       if (oppError) throw oppError;
       setOpportunities(oppData || []);
 
-      const { data: orderData, error: orderError } = await supabase.from("siparisler").select("*, opportunities!inner(baslik, esnaf_id, kalan_stok)").eq("opportunities.esnaf_id", currentUser.id).order("olusturma_zamani", { ascending: false });
+      // Fiyat bilgisini de siparişlerle beraber çekiyoruz
+      const { data: orderData, error: orderError } = await supabase.from("siparisler").select("*, opportunities!inner(baslik, esnaf_id, kalan_stok, indirimli_fiyat)").eq("opportunities.esnaf_id", currentUser.id).order("olusturma_zamani", { ascending: false });
       if (orderError) throw orderError;
+      
       setOrders(orderData || []);
+
+      // YENİ: BUGÜNKÜ KAZANCI VE KULLANIMI HESAPLAMA
+      const bugun = new Date().toISOString().split('T')[0];
+      const bugunkuSiparisler = (orderData || []).filter(o => o.durum === 'kullanildi' && o.olusturma_zamani.startsWith(bugun));
+      
+      setGunlukKullanim(bugunkuSiparisler.length);
+      const kazanc = bugunkuSiparisler.reduce((toplam, siparis) => toplam + (siparis.opportunities?.indirimli_fiyat || 0), 0);
+      setGunlukKazanc(kazanc);
+
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -78,8 +93,31 @@ export default function DashboardPage() {
     setCurrentUser(null);
   };
 
+  // YENİ: GERÇEK FOTOĞRAF YÜKLEME MANTIĞI
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsUploading(true);
+
+    let finalFotoUrl = formData.foto_url;
+
+    // Eğer galeriden yeni bir fotoğraf seçildiyse, önce onu Supabase'e yükle
+    if (imageFile) {
+      const fileExt = imageFile.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage.from('firsat_fotolar').upload(fileName, imageFile);
+      
+      if (uploadError) {
+        alert("Fotoğraf yüklenemedi: " + uploadError.message);
+        setIsUploading(false);
+        return; // Hata varsa durdur
+      }
+      
+      // Yüklenen resmin açık linkini al
+      const { data: publicUrlData } = supabase.storage.from('firsat_fotolar').getPublicUrl(fileName);
+      finalFotoUrl = publicUrlData.publicUrl;
+    }
+
     const payload = {
       esnaf_id: currentUser.id,
       dukkan_adi: currentUser.dukkan_adi,
@@ -88,20 +126,24 @@ export default function DashboardPage() {
       indirimli_fiyat: parseFloat(formData.indirimli_fiyat),
       toplam_stok: parseInt(formData.stok),
       kalan_stok: parseInt(formData.stok),
-      foto_url: formData.foto_url,
+      foto_url: finalFotoUrl,
       kisi_basi_limit: parseInt(formData.kisi_basi_limit),
-      kategori: formData.kategori, // YENİ: Kategori veritabanına gidiyor
+      kategori: formData.kategori, 
       bitis_zamani: new Date(Date.now() + parseFloat(formData.sure_saat) * 60 * 60 * 1000).toISOString(),
       aktif_mi: true
     };
+
     try {
       if (editingId) await supabase.from("opportunities").update(payload).eq("id", editingId);
       else await supabase.from("opportunities").insert([payload]);
+      
       setIsModalOpen(false);
       setEditingId(null);
+      setImageFile(null); // Dosya seçimini sıfırla
       setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1", kategori: "Yemek" });
       fetchData();
     } catch (e) { alert("Hata oluştu!"); }
+    finally { setIsUploading(false); }
   };
 
   const handleDelete = async (id: string) => {
@@ -113,12 +155,13 @@ export default function DashboardPage() {
 
   const openEditModal = (opp: any) => {
     setEditingId(opp.id);
+    setImageFile(null); // Düzenlemeye girerken eski seçimi temizle
     setFormData({ 
       baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), 
       indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), 
       foto_url: opp.foto_url || "", sure_saat: "24",
       kisi_basi_limit: (opp.kisi_basi_limit || 1).toString(),
-      kategori: opp.kategori || "Yemek" // YENİ: Düzenlerken kategoriyi çek
+      kategori: opp.kategori || "Yemek" 
     });
     setIsModalOpen(true);
   };
@@ -188,10 +231,24 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center justify-center gap-3 w-full sm:w-auto">
-          <button onClick={() => { setEditingId(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1", kategori:"Yemek"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">
+          <button onClick={() => { setEditingId(null); setImageFile(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1", kategori:"Yemek"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">
             + YENİ FIRSAT
           </button>
           <button onClick={handleLogout} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all h-12 text-sm whitespace-nowrap">ÇIKIŞ</button>
+        </div>
+      </div>
+
+      {/* YENİ: ESNAF İSTATİSTİK ALANI (ANALYTICS) */}
+      <div className="grid grid-cols-2 gap-4 sm:gap-8 mb-8">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+          <span className="text-3xl mb-2">💸</span>
+          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Bugünkü Kazancın</p>
+          <p className="text-3xl font-black text-emerald-500">{gunlukKazanc} ₺</p>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+          <span className="text-3xl mb-2">🤝</span>
+          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Kullanılan Kod</p>
+          <p className="text-3xl font-black text-orange-500">{gunlukKullanim} Kişi</p>
         </div>
       </div>
 
@@ -293,14 +350,23 @@ export default function DashboardPage() {
             <div className="overflow-y-auto p-6 space-y-5 custom-scrollbar">
               <input required placeholder="Fırsat Başlığı (Örn: Gece Lahmacunu)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={formData.baslik} onChange={(e) => setFormData({...formData, baslik: e.target.value})} />
               
-              <input placeholder="Fotoğraf Linki (İsteğe Bağlı)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={formData.foto_url} onChange={(e) => setFormData({...formData, foto_url: e.target.value})} />
+              {/* YENİ: DOSYA (FOTOĞRAF) SEÇİCİ */}
+              <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center hover:border-orange-400 transition-all">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 cursor-pointer">Fotoğraf Seç (Galeriden)</label>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                  className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-orange-50 file:text-orange-600 hover:file:bg-orange-100 cursor-pointer"
+                />
+                {formData.foto_url && !imageFile && <p className="text-xs text-emerald-500 mt-2 font-bold">Mevcut fotoğraf var.</p>}
+              </div>
               
               <div className="grid grid-cols-2 gap-4">
                 <input required type="number" placeholder="Eski Fiyat (₺)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
                 <input required type="number" placeholder="Fırsat Fiyatı (₺)" className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 font-black outline-none focus:border-orange-500 text-orange-600" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
               </div>
               
-              {/* YENİ: Kategori Seçimi Eklendi */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Kategori</label>
@@ -311,7 +377,6 @@ export default function DashboardPage() {
                     <option value="Diğer">Diğer</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Kişi Başı Limit</label>
                   <select required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-700" value={formData.kisi_basi_limit} onChange={(e) => setFormData({...formData, kisi_basi_limit: e.target.value})}>
@@ -341,8 +406,8 @@ export default function DashboardPage() {
                 </div>
               </div>
               
-              <button type="button" onClick={handleSave} className="w-full bg-slate-900 text-white font-black py-5 rounded-[24px] shadow-xl text-lg hover:bg-slate-800 transition-all active:scale-95 mt-4">
-                {editingId ? "GÜNCELLE ✅" : "YAYINLA 🚀"}
+              <button type="button" onClick={handleSave} disabled={isUploading} className={`w-full text-white font-black py-5 rounded-[24px] shadow-xl text-lg transition-all active:scale-95 mt-4 ${isUploading ? 'bg-slate-400 animate-pulse cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800'}`}>
+                {isUploading ? "FOTOĞRAF YÜKLENİYOR... ⏳" : editingId ? "GÜNCELLE ✅" : "YAYINLA 🚀"}
               </button>
             </div>
           </div>
