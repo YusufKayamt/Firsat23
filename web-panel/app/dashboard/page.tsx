@@ -18,7 +18,6 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  // YENİ: kisi_basi_limit state'i eklendi (Varsayılan 1)
   const [formData, setFormData] = useState({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1" });
   
   const [now, setNow] = useState(Date.now());
@@ -86,7 +85,7 @@ export default function DashboardPage() {
       toplam_stok: parseInt(formData.stok),
       kalan_stok: parseInt(formData.stok),
       foto_url: formData.foto_url,
-      kisi_basi_limit: parseInt(formData.kisi_basi_limit), // YENİ: Kota veritabanına gidiyor
+      kisi_basi_limit: parseInt(formData.kisi_basi_limit),
       bitis_zamani: new Date(Date.now() + parseFloat(formData.sure_saat) * 60 * 60 * 1000).toISOString(),
       aktif_mi: true
     };
@@ -113,7 +112,7 @@ export default function DashboardPage() {
       baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), 
       indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), 
       foto_url: opp.foto_url || "", sure_saat: "24",
-      kisi_basi_limit: (opp.kisi_basi_limit || 1).toString() // YENİ: Düzenlerken kotayı çek
+      kisi_basi_limit: (opp.kisi_basi_limit || 1).toString()
     });
     setIsModalOpen(true);
   };
@@ -287,6 +286,9 @@ export default function DashboardPage() {
             <div className="overflow-y-auto p-6 space-y-5 custom-scrollbar">
               <input required placeholder="Fırsat Başlığı (Örn: Gece Lahmacunu)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={formData.baslik} onChange={(e) => setFormData({...formData, baslik: e.target.value})} />
               
+              {/* İŞTE GERİ DÖNEN FOTOĞRAF ALANI */}
+              <input placeholder="Fotoğraf Linki (İsteğe Bağlı)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={formData.foto_url} onChange={(e) => setFormData({...formData, foto_url: e.target.value})} />
+              
               <div className="grid grid-cols-2 gap-4">
                 <input required type="number" placeholder="Eski Fiyat (₺)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
                 <input required type="number" placeholder="Fırsat Fiyatı (₺)" className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 font-black outline-none focus:border-orange-500 text-orange-600" value={formData.indirimli_fiyat} onChange={(e) => setFormData({...formData, indirimli_fiyat: e.target.value})} />
@@ -298,7 +300,6 @@ export default function DashboardPage() {
                   <input required type="number" placeholder="Adet" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
                 </div>
                 
-                {/* YENİ EKLENEN KİŞİ BAŞI LİMİT SEÇİCİ */}
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Kişi Başı Limit</label>
                   <select required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-700" value={formData.kisi_basi_limit} onChange={(e) => setFormData({...formData, kisi_basi_limit: e.target.value})}>
