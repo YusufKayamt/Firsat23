@@ -5,7 +5,7 @@ import { createClient } from "./utils/supabase/client";
 
 const supabase = createClient();
 
-// YENİ: İki nokta arasındaki mesafeyi ölçen sihirli matematik formülü (Kuş Uçuşu)
+// İki nokta arasındaki mesafeyi ölçen formül
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null;
   const R = 6371; 
@@ -15,7 +15,7 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
             Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
             Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c; // Kilometre cinsinden
+  return R * c; 
 }
 
 export default function HomePage() {
@@ -48,16 +48,29 @@ export default function HomePage() {
   const [selectedOrderForRating, setSelectedOrderForRating] = useState<any>(null);
   const [ratingScore, setRatingScore] = useState(5);
 
-  // YENİ: Müşteri Konumu State'i
   const [customerLocation, setCustomerLocation] = useState<{lat: number, lng: number} | null>(null);
 
   const fetchPublicData = async (isSilent = false) => {
     try {
       if (!isSilent) setLoading(true);
-      // YENİ: Fırsatları çekerken, fırsatı ekleyen esnafın enlem ve boylamını da çekiyoruz!
-      const { data, error } = await supabase.from("opportunities").select("*, esnaflar(enlem, boylam)").eq("aktif_mi", true).order("olusturma_zamani", { ascending: false });
-      if (error) throw error;
-      setOpportunities(data || []);
+      
+      // 1. Önce SADECE fırsatları çekiyoruz (Hata riskini sıfırladık)
+      const { data: oppData, error: oppError } = await supabase.from("opportunities").select("*").eq("aktif_mi", true).order("olusturma_zamani", { ascending: false });
+      if (oppError) throw oppError;
+
+      // 2. Esnafların konumlarını çekiyoruz
+      const { data: esnafData, error: esnafError } = await supabase.from("esnaflar").select("id, enlem, boylam");
+      
+      // 3. Fırsatlarla esnaf konumlarını kod içinde güvenle birleştiriyoruz
+      const birlesikData = (oppData || []).map(opp => {
+        const dukkan = (esnafData || []).find(e => e.id === opp.esnaf_id);
+        return {
+          ...opp,
+          esnaflar: dukkan ? { enlem: dukkan.enlem, boylam: dukkan.boylam } : null
+        };
+      });
+
+      setOpportunities(birlesikData);
 
       const { data: revs } = await supabase.from("degerlendirmeler").select("*");
       setDegerlendirmeler(revs || []);
@@ -78,11 +91,10 @@ export default function HomePage() {
     const savedCustomer = localStorage.getItem("firsatgo_musteri");
     if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
 
-    // Arka planda müşteri konumunu bulmaya çalış (izin verildiyse sessizce alır)
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {} // Reddedilirse sessizce geç
+        () => {}
       );
     }
 
@@ -97,7 +109,6 @@ export default function HomePage() {
 
   useEffect(() => { if (showProfileModal) fetchMyOrders(); }, [showProfileModal]);
 
-  // YENİ: Manuel olarak konum izni isteme butonu için
   const requestLocation = () => {
     navigator.geolocation.getCurrentPosition(
       (pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -211,7 +222,6 @@ export default function HomePage() {
             <input type="text" placeholder="Ne çekiyor canın?..." value={aramaKelimesi} onChange={(e) => setAramaKelimesi(e.target.value)} className="w-full bg-white border border-slate-100 shadow-xl rounded-3xl py-4 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-orange-500 transition-all" />
           </div>
           
-          {/* YENİ: KONUM İZİ BAŞLATMA BUTONU */}
           {!customerLocation && (
             <button onClick={requestLocation} className="bg-white border border-slate-100 shadow-xl rounded-3xl px-4 flex items-center justify-center hover:bg-slate-100 transition-colors" title="Bana yakın fırsatları bul">
               <span className="text-2xl">📍</span>
@@ -239,7 +249,6 @@ export default function HomePage() {
             const dukkanPuanlari = degerlendirmeler.filter(r => r.esnaf_id === opp.esnaf_id);
             const ortalamaPuan = dukkanPuanlari.length > 0 ? (dukkanPuanlari.reduce((acc, curr) => acc + curr.puan, 0) / dukkanPuanlari.length).toFixed(1) : "Yeni";
 
-            // YENİ: MESAFE HESAPLAMA
             let mesafeMetni = null;
             if (customerLocation && opp.esnaflar?.enlem && opp.esnaflar?.boylam) {
               const dist = getDistance(customerLocation.lat, customerLocation.lng, opp.esnaflar.enlem, opp.esnaflar.boylam);
@@ -274,7 +283,6 @@ export default function HomePage() {
                         <span className="bg-amber-100 text-amber-600 px-2 py-1 rounded-full text-[10px] font-black flex items-center gap-1 shadow-sm">⭐ {ortalamaPuan}</span>
                       </div>
                       
-                      {/* YENİ: MESAFE ETİKETİ GÖRÜNÜMÜ */}
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-bold text-slate-400 px-1">{opp.kategori || 'Yemek'}</span>
                         {mesafeMetni && ( <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md flex items-center gap-1">📍 {mesafeMetni}</span> )}
