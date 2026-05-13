@@ -29,6 +29,10 @@ export default function DashboardPage() {
 
   const [now, setNow] = useState(Date.now());
 
+  // YENİ: AYARLAR STATE'LERİ
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsForm, setSettingsForm] = useState({ dukkan_adi: "", telefon: "", sifre: "" });
+
   useEffect(() => {
     const savedUser = localStorage.getItem("firsatgo_esnaf");
     if (savedUser) setCurrentUser(JSON.parse(savedUser));
@@ -88,7 +92,6 @@ export default function DashboardPage() {
 
   const handleLogout = () => { localStorage.removeItem("firsatgo_esnaf"); setCurrentUser(null); };
 
-  // YENİ: DÜKKAN KONUMUNU KAYDETME FONKSİYONU
   const konumGuncelle = () => {
     if (!navigator.geolocation) { alert("Tarayıcınız konum özelliğini desteklemiyor."); return; }
     navigator.geolocation.getCurrentPosition(async (position) => {
@@ -155,6 +158,31 @@ export default function DashboardPage() {
     }
   };
 
+  // YENİ: AYARLARI KAYDETME FONKSİYONU
+  const handleSettingsSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const { error } = await supabase.from("esnaflar").update({
+        dukkan_adi: settingsForm.dukkan_adi,
+        telefon: settingsForm.telefon,
+        sifre: settingsForm.sifre
+      }).eq("id", currentUser.id);
+      
+      if (error) throw error;
+
+      const updatedUser = { ...currentUser, ...settingsForm };
+      setCurrentUser(updatedUser);
+      localStorage.setItem("firsatgo_esnaf", JSON.stringify(updatedUser));
+      setIsSettingsOpen(false);
+      alert("Profil bilgileri başarıyla güncellendi! ✅");
+    } catch (e) { alert("Güncelleme başarısız oldu."); }
+  };
+
+  const openSettings = () => {
+    setSettingsForm({ dukkan_adi: currentUser.dukkan_adi, telefon: currentUser.telefon, sifre: currentUser.sifre });
+    setIsSettingsOpen(true);
+  };
+
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 font-sans">
@@ -199,8 +227,12 @@ export default function DashboardPage() {
             <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em] mt-1">Esnaf Yönetim Merkezi</p>
           </div>
         </div>
-        <div className="flex items-center justify-center gap-3 w-full sm:w-auto">
+        <div className="flex items-center justify-center gap-2 w-full sm:w-auto">
           <button onClick={() => { setEditingId(null); setImageFile(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1", kategori:"Yemek"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">+ YENİ FIRSAT</button>
+          
+          {/* YENİ: AYARLAR BUTONU */}
+          <button onClick={openSettings} className="flex-none bg-slate-100 text-slate-600 px-4 py-3 rounded-2xl font-black hover:bg-slate-200 transition-all h-12 text-xl" title="Profil Ayarları">⚙️</button>
+          
           <button onClick={handleLogout} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all h-12 text-sm whitespace-nowrap">ÇIKIŞ</button>
         </div>
       </div>
@@ -221,7 +253,6 @@ export default function DashboardPage() {
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Puanın</p>
           <p className="text-2xl font-black text-amber-500">{ortalamaPuan ? ortalamaPuan.toFixed(1) : '-'}</p>
         </div>
-        {/* YENİ: KONUM KAYDETME KUTUSU */}
         <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
           <span className="text-3xl mb-1">📍</span>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Dükkan Konumu</p>
@@ -342,6 +373,35 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* YENİ: AYARLAR MODALI */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative">
+            <button onClick={() => setIsSettingsOpen(false)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-800 text-xl font-bold">✕</button>
+            <div className="text-center mb-6">
+              <span className="text-4xl mb-2 inline-block">⚙️</span>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight">Profil Ayarları</h2>
+            </div>
+            <form onSubmit={handleSettingsSave} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 pl-1">Dükkan Adı</label>
+                <input required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={settingsForm.dukkan_adi} onChange={(e) => setSettingsForm({...settingsForm, dukkan_adi: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 pl-1">Telefon (Giriş İçin)</label>
+                <input required type="tel" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={settingsForm.telefon} onChange={(e) => setSettingsForm({...settingsForm, telefon: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 pl-1">Şifre</label>
+                <input required type="text" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={settingsForm.sifre} onChange={(e) => setSettingsForm({...settingsForm, sifre: e.target.value})} />
+              </div>
+              <button type="submit" className="w-full bg-slate-900 text-white font-black py-4 rounded-[24px] shadow-xl text-lg hover:bg-slate-800 transition-all active:scale-95 mt-4">KAYDET</button>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

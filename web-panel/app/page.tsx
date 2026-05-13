@@ -49,11 +49,13 @@ export default function HomePage() {
 
   const [customerLocation, setCustomerLocation] = useState<{lat: number, lng: number} | null>(null);
 
+  // YENİ: MÜŞTERİ AYARLARI STATE'LERİ
+  const [isCustomerSettingsOpen, setIsCustomerSettingsOpen] = useState(false);
+  const [customerSettingsForm, setCustomerSettingsForm] = useState({ ad_soyad: "", telefon: "", sifre: "" });
+
   const fetchPublicData = async (isSilent = false) => {
     try {
       if (!isSilent) setLoading(true);
-      
-      // HATA ÇÖZÜMÜ BURADA: aktif_mi filtresini kaldırdık, ne varsa çekiyoruz.
       const { data: oppData, error: oppError } = await supabase.from("opportunities").select("*").order("olusturma_zamani", { ascending: false });
       if (oppError) console.error("Fırsat Çekme Hatası:", oppError);
 
@@ -70,7 +72,6 @@ export default function HomePage() {
       const { data: revs, error: revError } = await supabase.from("degerlendirmeler").select("*");
       if (revError) console.error("Değerlendirme Çekme Hatası:", revError);
       setDegerlendirmeler(revs || []);
-      
     } catch (e) { console.error("Vitrin Genel Hatası:", e); } 
     finally { if (!isSilent) setLoading(false); }
   };
@@ -90,15 +91,11 @@ export default function HomePage() {
     if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
 
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {}
-      );
+      navigator.geolocation.getCurrentPosition((pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => {});
     }
 
     const timer = setInterval(() => setNow(Date.now()), 1000);
     if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
-
     const handleBeforeInstallPrompt = (e: any) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBtn(true); };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
@@ -108,18 +105,13 @@ export default function HomePage() {
   useEffect(() => { if (showProfileModal) fetchMyOrders(); }, [showProfileModal]);
 
   const requestLocation = () => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => alert("Cihazınızdan konum izni vermeniz gerekiyor.")
-    );
+    navigator.geolocation.getCurrentPosition((pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => alert("Cihazınızdan konum izni vermeniz gerekiyor."));
   };
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
+    if (!deferredPrompt) return; deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') setShowInstallBtn(false);
-    setDeferredPrompt(null);
+    if (outcome === 'accepted') setShowInstallBtn(false); setDeferredPrompt(null);
   };
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -141,6 +133,33 @@ export default function HomePage() {
   };
 
   const handleLogout = () => { localStorage.removeItem("firsatgo_musteri"); setCurrentCustomer(null); setShowProfileModal(false); };
+
+  // YENİ: MÜŞTERİ AYARLARINI KAYDETME FONKSİYONU
+  const handleCustomerSettingsSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const { error } = await supabase.from("musteriler").update({
+        ad_soyad: customerSettingsForm.ad_soyad,
+        telefon: customerSettingsForm.telefon,
+        sifre: customerSettingsForm.sifre
+      }).eq("id", currentCustomer.id);
+      
+      if (error) throw error;
+
+      const updatedUser = { ...currentCustomer, ...customerSettingsForm };
+      setCurrentCustomer(updatedUser);
+      localStorage.setItem("firsatgo_musteri", JSON.stringify(updatedUser));
+      setIsCustomerSettingsOpen(false);
+      setShowProfileModal(true); // Ayarlardan çıkınca profile geri dön
+      alert("Profil bilgileri başarıyla güncellendi! ✅");
+    } catch (e) { alert("Güncelleme başarısız oldu."); }
+  };
+
+  const openCustomerSettings = () => {
+    setCustomerSettingsForm({ ad_soyad: currentCustomer.ad_soyad, telefon: currentCustomer.telefon, sifre: currentCustomer.sifre });
+    setShowProfileModal(false); // Profili gizle
+    setIsCustomerSettingsOpen(true); // Ayarları aç
+  };
 
   const handleYakala = async (opp: any) => {
     if (!currentCustomer) { setShowAuthModal(true); return; }
@@ -348,8 +367,12 @@ export default function HomePage() {
             <div className="p-6 border-b border-slate-100 bg-slate-50">
               <div className="w-16 h-16 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-2">{currentCustomer.ad_soyad.charAt(0)}</div>
               <h2 className="text-xl font-black text-center text-slate-800">{currentCustomer.ad_soyad}</h2>
-              <p className="text-center text-slate-400 font-mono text-sm">{currentCustomer.telefon}</p>
-              <button onClick={handleLogout} className="mt-4 w-full bg-red-50 text-red-600 font-black py-2 rounded-xl text-xs hover:bg-red-500 hover:text-white transition-colors">HESAPTAN ÇIKIŞ YAP</button>
+              <p className="text-center text-slate-400 font-mono text-sm mb-4">{currentCustomer.telefon}</p>
+              
+              <div className="flex gap-2">
+                <button onClick={openCustomerSettings} className="flex-1 bg-slate-200 text-slate-700 font-black py-2 rounded-xl text-xs hover:bg-slate-300 transition-colors">⚙️ AYARLAR</button>
+                <button onClick={handleLogout} className="flex-1 bg-red-50 text-red-600 font-black py-2 rounded-xl text-xs hover:bg-red-500 hover:text-white transition-colors">ÇIKIŞ YAP</button>
+              </div>
             </div>
             <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar bg-white flex-1">
               <h4 className="font-black text-slate-400 uppercase tracking-widest text-xs mb-4">Aldığım Kodlar</h4>
@@ -382,6 +405,34 @@ export default function HomePage() {
                 })
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* YENİ: MÜŞTERİ AYARLARI MODALI */}
+      {isCustomerSettingsOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative">
+            <button onClick={() => {setIsCustomerSettingsOpen(false); setShowProfileModal(true);}} className="absolute top-6 right-6 text-slate-400 hover:text-slate-800 text-xl font-bold">✕</button>
+            <div className="text-center mb-6">
+              <span className="text-4xl mb-2 inline-block">⚙️</span>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight">Profil Ayarları</h2>
+            </div>
+            <form onSubmit={handleCustomerSettingsSave} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 pl-1">Ad Soyad</label>
+                <input required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={customerSettingsForm.ad_soyad} onChange={(e) => setCustomerSettingsForm({...customerSettingsForm, ad_soyad: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 pl-1">Telefon Numarası</label>
+                <input required type="tel" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={customerSettingsForm.telefon} onChange={(e) => setCustomerSettingsForm({...customerSettingsForm, telefon: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 pl-1">Yeni Şifre</label>
+                <input required type="text" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all text-slate-800" value={customerSettingsForm.sifre} onChange={(e) => setCustomerSettingsForm({...customerSettingsForm, sifre: e.target.value})} />
+              </div>
+              <button type="submit" className="w-full bg-slate-900 text-white font-black py-4 rounded-[24px] shadow-xl text-lg hover:bg-slate-800 transition-all active:scale-95 mt-4">KAYDET</button>
+            </form>
           </div>
         </div>
       )}
