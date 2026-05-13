@@ -24,8 +24,6 @@ export default function DashboardPage() {
 
   const [gunlukKullanim, setGunlukKullanim] = useState(0);
   const [gunlukKazanc, setGunlukKazanc] = useState(0);
-  
-  // YENİ: Esnafın puanı
   const [ortalamaPuan, setOrtalamaPuan] = useState<number | null>(null);
   const [yorumSayisi, setYorumSayisi] = useState(0);
 
@@ -52,14 +50,12 @@ export default function DashboardPage() {
       const kazanc = bugunkuSiparisler.reduce((toplam, siparis) => toplam + (siparis.opportunities?.indirimli_fiyat || 0), 0);
       setGunlukKazanc(kazanc);
 
-      // YENİ: PUANLARI ÇEK
       const { data: puanlar } = await supabase.from("degerlendirmeler").select("puan").eq("esnaf_id", currentUser.id);
       if (puanlar && puanlar.length > 0) {
         const toplamPuan = puanlar.reduce((acc, curr) => acc + curr.puan, 0);
         setOrtalamaPuan(toplamPuan / puanlar.length);
         setYorumSayisi(puanlar.length);
       }
-
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -84,16 +80,27 @@ export default function DashboardPage() {
         if (error || !data) throw new Error("Telefon numarası veya şifre hatalı!");
         loggedInUser = data;
       }
-      
       setCurrentUser(loggedInUser);
       if (rememberMe) localStorage.setItem("firsatgo_esnaf", JSON.stringify(loggedInUser));
       else localStorage.removeItem("firsatgo_esnaf");
     } catch (err: any) { setAuthError(err.message); }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("firsatgo_esnaf");
-    setCurrentUser(null);
+  const handleLogout = () => { localStorage.removeItem("firsatgo_esnaf"); setCurrentUser(null); };
+
+  // YENİ: DÜKKAN KONUMUNU KAYDETME FONKSİYONU
+  const konumGuncelle = () => {
+    if (!navigator.geolocation) { alert("Tarayıcınız konum özelliğini desteklemiyor."); return; }
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      const { latitude, longitude } = position.coords;
+      const { error } = await supabase.from("esnaflar").update({ enlem: latitude, boylam: longitude }).eq("id", currentUser.id);
+      if (!error) {
+        const updatedUser = { ...currentUser, enlem: latitude, boylam: longitude };
+        setCurrentUser(updatedUser);
+        localStorage.setItem("firsatgo_esnaf", JSON.stringify(updatedUser));
+        alert("Dükkan konumu başarıyla kaydedildi! 📍");
+      }
+    }, () => { alert("Konum izni vermeniz gerekiyor!"); });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -120,7 +127,6 @@ export default function DashboardPage() {
     try {
       if (editingId) await supabase.from("opportunities").update(payload).eq("id", editingId);
       else await supabase.from("opportunities").insert([payload]);
-      
       setIsModalOpen(false); setEditingId(null); setImageFile(null);
       setFormData({ baslik: "", normal_fiyat: "", indirimli_fiyat: "", stok: "", foto_url: "", sure_saat: "24", kisi_basi_limit: "1", kategori: "Yemek" });
       fetchData();
@@ -129,33 +135,23 @@ export default function DashboardPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm("Bu fırsatı kalıcı olarak silmek istediğinize emin misiniz?")) {
-      await supabase.from("opportunities").delete().eq("id", id); fetchData();
-    }
+    if (confirm("Bu fırsatı kalıcı olarak silmek istediğinize emin misiniz?")) { await supabase.from("opportunities").delete().eq("id", id); fetchData(); }
   };
 
   const openEditModal = (opp: any) => {
     setEditingId(opp.id); setImageFile(null);
-    setFormData({ 
-      baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), indirimli_fiyat: opp.indirimli_fiyat.toString(), 
-      stok: opp.toplam_stok.toString(), foto_url: opp.foto_url || "", sure_saat: "24",
-      kisi_basi_limit: (opp.kisi_basi_limit || 1).toString(), kategori: opp.kategori || "Yemek" 
-    });
+    setFormData({ baslik: opp.baslik, normal_fiyat: opp.normal_fiyat.toString(), indirimli_fiyat: opp.indirimli_fiyat.toString(), stok: opp.toplam_stok.toString(), foto_url: opp.foto_url || "", sure_saat: "24", kisi_basi_limit: (opp.kisi_basi_limit || 1).toString(), kategori: opp.kategori || "Yemek" });
     setIsModalOpen(true);
   };
 
   const handleApproveCode = async (orderId: string) => {
-    if (confirm("Bu kodu onaylayıp satışı tamamlamak istiyor musunuz?")) {
-      await supabase.from("siparisler").update({ durum: 'kullanildi' }).eq("id", orderId); fetchData();
-    }
+    if (confirm("Bu kodu onaylayıp satışı tamamlamak istiyor musunuz?")) { await supabase.from("siparisler").update({ durum: 'kullanildi' }).eq("id", orderId); fetchData(); }
   };
 
   const handleCancelExpiredCode = async (orderId: string, firsatId: string, guncelKalanStok: number) => {
     if (confirm("Bu kodun süresi dolmuş. İptal edip ürünü tekrar vitrine (stoğa) eklemek istiyor musunuz?")) {
-      try {
-        await supabase.from("siparisler").update({ durum: 'iptal' }).eq("id", orderId);
-        await supabase.from("opportunities").update({ kalan_stok: guncelKalanStok + 1 }).eq("id", firsatId); fetchData();
-      } catch (e) { alert("İşlem sırasında hata oluştu!"); }
+      try { await supabase.from("siparisler").update({ durum: 'iptal' }).eq("id", orderId); await supabase.from("opportunities").update({ kalan_stok: guncelKalanStok + 1 }).eq("id", firsatId); fetchData(); } 
+      catch (e) { alert("İşlem sırasında hata oluştu!"); }
     }
   };
 
@@ -185,7 +181,6 @@ export default function DashboardPage() {
               {authMode === 'login' ? 'GİRİŞ YAP' : 'HESAP OLUŞTUR'}
             </button>
           </form>
-          <button onClick={() => window.location.href='/'} className="w-full text-center mt-6 text-slate-400 text-xs font-bold hover:text-slate-800 transition-colors">← Vitrine Dön</button>
         </div>
       </div>
     );
@@ -205,32 +200,37 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center justify-center gap-3 w-full sm:w-auto">
-          <button onClick={() => { setEditingId(null); setImageFile(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1", kategori:"Yemek"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">
-            + YENİ FIRSAT
-          </button>
+          <button onClick={() => { setEditingId(null); setImageFile(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1", kategori:"Yemek"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">+ YENİ FIRSAT</button>
           <button onClick={handleLogout} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all h-12 text-sm whitespace-nowrap">ÇIKIŞ</button>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 sm:gap-6 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
           <span className="text-3xl mb-2">💸</span>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Bugünkü Kazancın</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Bugünkü Kazanç</p>
           <p className="text-2xl font-black text-emerald-500">{gunlukKazanc} ₺</p>
         </div>
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
           <span className="text-3xl mb-2">🤝</span>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Kullanılan Kod</p>
-          <p className="text-2xl font-black text-orange-500">{gunlukKullanim} Kişi</p>
+          <p className="text-2xl font-black text-orange-500">{gunlukKullanim}</p>
         </div>
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
           <span className="text-3xl mb-2">⭐</span>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Puanın</p>
-          <p className="text-2xl font-black text-amber-500">{ortalamaPuan ? ortalamaPuan.toFixed(1) : '-'} <span className="text-xs text-slate-400">({yorumSayisi})</span></p>
+          <p className="text-2xl font-black text-amber-500">{ortalamaPuan ? ortalamaPuan.toFixed(1) : '-'}</p>
+        </div>
+        {/* YENİ: KONUM KAYDETME KUTUSU */}
+        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+          <span className="text-3xl mb-1">📍</span>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Dükkan Konumu</p>
+          <button onClick={konumGuncelle} className={`text-[10px] px-3 py-2 rounded-xl font-black w-full transition-colors ${currentUser.enlem ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-900 text-white hover:bg-orange-500'}`}>
+            {currentUser.enlem ? "KONUM KAYITLI ✔️" : "ŞU AN BURADAYIM"}
+          </button>
         </div>
       </div>
 
-      {/* ALT KISIMLAR AYNI KALIYOR (FIRSATLAR VE SİPARİŞLER)... */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-2xl font-black text-slate-800 ml-4 mb-4">Yayındaki Fırsatların</h2>
@@ -244,8 +244,6 @@ export default function DashboardPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="text-xl font-black text-slate-800 uppercase leading-tight">{opp.baslik}</h3>
-                      <span className="bg-slate-100 text-slate-500 text-[10px] font-black px-2 py-1 rounded-md">Limit: {opp.kisi_basi_limit || 1}</span>
-                      <span className="bg-orange-50 text-orange-500 text-[10px] font-black px-2 py-1 rounded-md">{opp.kategori || 'Yemek'}</span>
                     </div>
                     <div className="flex items-center gap-4 mt-2">
                       <span className="text-orange-600 font-black text-lg">{opp.indirimli_fiyat} ₺</span>
@@ -253,7 +251,6 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </div>
-                
                 <div className="flex items-center justify-between w-full sm:w-auto gap-4 sm:gap-8 border-t sm:border-0 border-slate-100 pt-4 sm:pt-0">
                   <div className="text-left sm:text-right">
                     <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">Kalan Stok</p>
@@ -315,7 +312,6 @@ export default function DashboardPage() {
               <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center hover:border-orange-400 transition-all">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 cursor-pointer">Fotoğraf Seç (Galeriden)</label>
                 <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-orange-50 file:text-orange-600 hover:file:bg-orange-100 cursor-pointer" />
-                {formData.foto_url && !imageFile && <p className="text-xs text-emerald-500 mt-2 font-bold">Mevcut fotoğraf var.</p>}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <input required type="number" placeholder="Eski Fiyat (₺)" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.normal_fiyat} onChange={(e) => setFormData({...formData, normal_fiyat: e.target.value})} />
@@ -331,7 +327,7 @@ export default function DashboardPage() {
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Kişi Başı Limit</label>
                   <select required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-700" value={formData.kisi_basi_limit} onChange={(e) => setFormData({...formData, kisi_basi_limit: e.target.value})}>
-                    <option value="1">1 Adet Alabilir</option><option value="2">2 Adet Alabilir</option><option value="3">3 Adet Alabilir</option><option value="4">4 Adet Alabilir</option><option value="5">5 Adet Alabilir</option><option value="100">Sınırsız Alabilir</option>
+                    <option value="1">1 Adet</option><option value="2">2 Adet</option><option value="3">3 Adet</option><option value="100">Sınırsız</option>
                   </select>
                 </div>
               </div>
@@ -339,14 +335,8 @@ export default function DashboardPage() {
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">Toplam Stok</label>
                 <input required type="number" placeholder="Adet" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 text-slate-800" value={formData.stok} onChange={(e) => setFormData({...formData, stok: e.target.value})} />
               </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 pl-1">Fırsat Süresi Seçin</label>
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                  {sureSecenekleri.map((val) => ( <button key={val} type="button" onClick={() => setFormData({...formData, sure_saat: val.toString()})} className={`flex-none px-5 py-3 rounded-2xl font-black text-sm transition-all border-2 ${formData.sure_saat === val.toString() ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-200' : 'bg-white border-slate-100 text-slate-500 hover:border-orange-300'}`}>{val === 0.5 ? "30 Dk" : val % 1 === 0 ? `${val} Saat` : `${Math.floor(val)} Saat 30 Dk`}</button> ))}
-                </div>
-              </div>
-              <button type="button" onClick={handleSave} disabled={isUploading} className={`w-full text-white font-black py-5 rounded-[24px] shadow-xl text-lg transition-all active:scale-95 mt-4 ${isUploading ? 'bg-slate-400 animate-pulse cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800'}`}>
-                {isUploading ? "FOTOĞRAF YÜKLENİYOR... ⏳" : editingId ? "GÜNCELLE ✅" : "YAYINLA 🚀"}
+              <button type="button" onClick={handleSave} disabled={isUploading} className={`w-full text-white font-black py-5 rounded-[24px] shadow-xl text-lg transition-all active:scale-95 mt-4 ${isUploading ? 'bg-slate-400' : 'bg-slate-900 hover:bg-slate-800'}`}>
+                {isUploading ? "YÜKLENİYOR... ⏳" : editingId ? "GÜNCELLE ✅" : "YAYINLA 🚀"}
               </button>
             </div>
           </div>

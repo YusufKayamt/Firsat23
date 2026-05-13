@@ -5,6 +5,19 @@ import { createClient } from "./utils/supabase/client";
 
 const supabase = createClient();
 
+// YENİ: İki nokta arasındaki mesafeyi ölçen sihirli matematik formülü (Kuş Uçuşu)
+function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+  const R = 6371; 
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c; // Kilometre cinsinden
+}
+
 export default function HomePage() {
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,20 +43,22 @@ export default function HomePage() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallBtn, setShowInstallBtn] = useState(false);
 
-  // YENİ: PUANLAMA SİSTEMİ STATE'LERİ
   const [degerlendirmeler, setDegerlendirmeler] = useState<any[]>([]);
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [selectedOrderForRating, setSelectedOrderForRating] = useState<any>(null);
   const [ratingScore, setRatingScore] = useState(5);
 
+  // YENİ: Müşteri Konumu State'i
+  const [customerLocation, setCustomerLocation] = useState<{lat: number, lng: number} | null>(null);
+
   const fetchPublicData = async (isSilent = false) => {
     try {
       if (!isSilent) setLoading(true);
-      const { data, error } = await supabase.from("opportunities").select("*").eq("aktif_mi", true).order("olusturma_zamani", { ascending: false });
+      // YENİ: Fırsatları çekerken, fırsatı ekleyen esnafın enlem ve boylamını da çekiyoruz!
+      const { data, error } = await supabase.from("opportunities").select("*, esnaflar(enlem, boylam)").eq("aktif_mi", true).order("olusturma_zamani", { ascending: false });
       if (error) throw error;
       setOpportunities(data || []);
 
-      // TÜM PUANLARI ÇEKİYORUZ
       const { data: revs } = await supabase.from("degerlendirmeler").select("*");
       setDegerlendirmeler(revs || []);
     } catch (e) { console.error("Vitrin hatası:", e); } 
@@ -63,23 +78,32 @@ export default function HomePage() {
     const savedCustomer = localStorage.getItem("firsatgo_musteri");
     if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
 
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').then(() => { console.log("Motor çalıştı!"); });
+    // Arka planda müşteri konumunu bulmaya çalış (izin verildiyse sessizce alır)
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {} // Reddedilirse sessizce geç
+      );
     }
 
-    const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault(); setDeferredPrompt(e); setShowInstallBtn(true); 
-    };
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+
+    const handleBeforeInstallPrompt = (e: any) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBtn(true); };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    return () => {
-      clearInterval(timer); window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
+    return () => { clearInterval(timer); window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); };
   }, []);
 
   useEffect(() => { if (showProfileModal) fetchMyOrders(); }, [showProfileModal]);
+
+  // YENİ: Manuel olarak konum izni isteme butonu için
+  const requestLocation = () => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => alert("Cihazınızdan konum izni vermeniz gerekiyor.")
+    );
+  };
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
@@ -90,18 +114,15 @@ export default function HomePage() {
   };
 
   const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError("");
+    e.preventDefault(); setAuthError("");
     try {
       let loggedInUser = null;
       if (authMode === 'register') {
         const { data, error } = await supabase.from("musteriler").insert([{ ad_soyad: authForm.ad_soyad, telefon: authForm.telefon, sifre: authForm.sifre }]).select();
-        if (error) throw new Error("Bu numara zaten kayıtlı!");
-        loggedInUser = data[0];
+        if (error) throw new Error("Bu numara zaten kayıtlı!"); loggedInUser = data[0];
       } else {
         const { data, error } = await supabase.from("musteriler").select("*").eq("telefon", authForm.telefon).eq("sifre", authForm.sifre).single();
-        if (error || !data) throw new Error("Telefon veya şifre hatalı!");
-        loggedInUser = data;
+        if (error || !data) throw new Error("Telefon veya şifre hatalı!"); loggedInUser = data;
       }
       setCurrentCustomer(loggedInUser);
       if (rememberMe) localStorage.setItem("firsatgo_musteri", JSON.stringify(loggedInUser));
@@ -110,21 +131,16 @@ export default function HomePage() {
     } catch (err: any) { setAuthError(err.message); }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("firsatgo_musteri"); setCurrentCustomer(null); setShowProfileModal(false);
-  };
+  const handleLogout = () => { localStorage.removeItem("firsatgo_musteri"); setCurrentCustomer(null); setShowProfileModal(false); };
 
   const handleYakala = async (opp: any) => {
     if (!currentCustomer) { setShowAuthModal(true); return; }
     if (opp.kalan_stok <= 0) return;
     setProcessingId(opp.id);
-
     try {
       const limit = opp.kisi_basi_limit || 1;
       const { data: userOrders } = await supabase.from("siparisler").select("id").eq("musteri_id", currentCustomer.id).eq("firsat_id", opp.id).neq("durum", "iptal");
-      if (userOrders && userOrders.length >= limit) {
-        alert(`Bu fırsattan kişi başı en fazla ${limit} adet yararlanabilirsiniz!`); setProcessingId(null); return;
-      }
+      if (userOrders && userOrders.length >= limit) { alert(`En fazla ${limit} adet yararlanabilirsiniz!`); setProcessingId(null); return; }
 
       const yeniStok = opp.kalan_stok - 1;
       await supabase.from("opportunities").update({ kalan_stok: yeniStok }).eq("id", opp.id);
@@ -136,7 +152,7 @@ export default function HomePage() {
       
       setOpportunities((mevcut) => mevcut.map((item) => item.id === opp.id ? { ...item, kalan_stok: yeniStok } : item));
       setSuccessCode({ baslik: opp.baslik, kod: rastgeleKod, bitis: sonKullanma });
-    } catch (error) { alert("Fırsat yakalanamadı, internetini kontrol et."); } 
+    } catch (error) { alert("Fırsat yakalanamadı."); } 
     finally { setProcessingId(null); }
   };
 
@@ -145,17 +161,10 @@ export default function HomePage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(mesaj)}`, '_blank');
   };
 
-  // YENİ: PUAN GÖNDERME İŞLEMİ
   const submitRating = async () => {
     try {
-      await supabase.from("degerlendirmeler").insert([{
-        siparis_id: selectedOrderForRating.id,
-        esnaf_id: selectedOrderForRating.opportunities.esnaf_id,
-        musteri_id: currentCustomer.id,
-        puan: ratingScore
-      }]);
-      setRatingModalOpen(false);
-      fetchPublicData(true); // Puanları güncelle
+      await supabase.from("degerlendirmeler").insert([{ siparis_id: selectedOrderForRating.id, esnaf_id: selectedOrderForRating.opportunities.esnaf_id, musteri_id: currentCustomer.id, puan: ratingScore }]);
+      setRatingModalOpen(false); fetchPublicData(true); 
     } catch (error) { alert("Puan gönderilirken hata oluştu!"); }
   };
 
@@ -195,14 +204,23 @@ export default function HomePage() {
       </div>
 
       <div className="max-w-xl mx-auto px-6 -mt-12 space-y-6">
-        <div className="relative z-20">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><span className="text-xl">🔍</span></div>
-          <input type="text" placeholder="Lahmacun, kahve, fırın ara..." value={aramaKelimesi} onChange={(e) => setAramaKelimesi(e.target.value)} className="w-full bg-white border border-slate-100 shadow-xl rounded-3xl py-4 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-orange-500 transition-all" />
+        
+        <div className="relative z-20 flex gap-2">
+          <div className="relative flex-1">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><span className="text-xl">🔍</span></div>
+            <input type="text" placeholder="Ne çekiyor canın?..." value={aramaKelimesi} onChange={(e) => setAramaKelimesi(e.target.value)} className="w-full bg-white border border-slate-100 shadow-xl rounded-3xl py-4 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-orange-500 transition-all" />
+          </div>
+          
+          {/* YENİ: KONUM İZİ BAŞLATMA BUTONU */}
+          {!customerLocation && (
+            <button onClick={requestLocation} className="bg-white border border-slate-100 shadow-xl rounded-3xl px-4 flex items-center justify-center hover:bg-slate-100 transition-colors" title="Bana yakın fırsatları bul">
+              <span className="text-2xl">📍</span>
+            </button>
+          )}
         </div>
+
         <div className="bg-white p-3 rounded-3xl shadow-lg flex gap-2 overflow-x-auto scrollbar-hide border border-slate-100 relative z-20">
-          {kategoriler.map((kat) => (
-            <button key={kat} onClick={() => setSeciliKategori(kat)} className={`flex-none px-5 py-2.5 rounded-2xl font-black text-xs transition-all tracking-wider ${seciliKategori === kat ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>{kat}</button>
-          ))}
+          {kategoriler.map((kat) => ( <button key={kat} onClick={() => setSeciliKategori(kat)} className={`flex-none px-5 py-2.5 rounded-2xl font-black text-xs transition-all tracking-wider ${seciliKategori === kat ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>{kat}</button> ))}
         </div>
 
         {loading ? ( <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic mt-4">VİTRİN HAZIRLANIYOR...</div> ) : filteredOpportunities.length === 0 ? ( <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400 mt-4">Aramanıza uygun fırsat bulunamadı. 🥨</div> ) : (
@@ -218,9 +236,17 @@ export default function HomePage() {
             const saniye = Math.floor((Math.max(0, kalanMilisaniye) % (1000 * 60)) / 1000);
             const zamanMetni = sureDoldu ? "SÜRE BİTTİ" : `${saat.toString().padStart(2, '0')}:${dakika.toString().padStart(2, '0')}:${saniye.toString().padStart(2, '0')}`;
 
-            // YENİ: DÜKKAN PUANI HESAPLAMA
             const dukkanPuanlari = degerlendirmeler.filter(r => r.esnaf_id === opp.esnaf_id);
             const ortalamaPuan = dukkanPuanlari.length > 0 ? (dukkanPuanlari.reduce((acc, curr) => acc + curr.puan, 0) / dukkanPuanlari.length).toFixed(1) : "Yeni";
+
+            // YENİ: MESAFE HESAPLAMA
+            let mesafeMetni = null;
+            if (customerLocation && opp.esnaflar?.enlem && opp.esnaflar?.boylam) {
+              const dist = getDistance(customerLocation.lat, customerLocation.lng, opp.esnaflar.enlem, opp.esnaflar.boylam);
+              if (dist !== null) {
+                mesafeMetni = dist < 1 ? `${Math.round(dist * 1000)}m uzaklıkta` : `${dist.toFixed(1)}km uzaklıkta`;
+              }
+            }
 
             return (
               <div key={opp.id} className={`bg-white rounded-[40px] shadow-xl overflow-hidden border-2 transition-all duration-300 relative ${tukendiMi ? 'border-slate-100 opacity-75' : 'border-white hover:-translate-y-1 shadow-slate-200/50'}`}>
@@ -232,32 +258,30 @@ export default function HomePage() {
                       <span className="tracking-widest font-mono">{zamanMetni}</span>
                     </div>
                     {tukendiMi && (
-                      <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center backdrop-blur-sm">
-                        <span className="bg-white text-slate-900 font-black text-xl px-6 py-2 rounded-full tracking-widest uppercase shadow-2xl transform -rotate-12 border-4 border-white">{sureDoldu ? 'SÜRE DOLDU' : 'TÜKENDİ'}</span>
-                      </div>
+                      <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center backdrop-blur-sm"><span className="bg-white text-slate-900 font-black text-xl px-6 py-2 rounded-full tracking-widest uppercase shadow-2xl transform -rotate-12 border-4 border-white">{sureDoldu ? 'SÜRE DOLDU' : 'TÜKENDİ'}</span></div>
                     )}
                   </div>
                 )}
                 <div className="p-8 relative">
                   {!opp.foto_url && (
-                    <div className="absolute top-6 right-8 bg-slate-100 text-slate-800 font-black px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm">
-                      <span className={`${sureDoldu ? 'text-red-500' : 'text-orange-500 animate-pulse'}`}>⏳</span>
-                      <span className="tracking-widest font-mono">{zamanMetni}</span>
-                    </div>
+                    <div className="absolute top-6 right-8 bg-slate-100 text-slate-800 font-black px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm"><span className={`${sureDoldu ? 'text-red-500' : 'text-orange-500 animate-pulse'}`}>⏳</span><span className="tracking-widest font-mono">{zamanMetni}</span></div>
                   )}
 
                   <div className="flex justify-between items-start mb-4 pr-24">
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
-                        <span onClick={() => setSeciliDukkan(opp.dukkan_adi)} className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px] inline-block cursor-pointer hover:bg-orange-200 transition-colors" title="Dükkanın diğer fırsatlarını gör">🏪 {opp.dukkan_adi || "FırsatGo Esnafı"}</span>
-                        {/* YENİ: YILDIZ ETİKETİ EKLENDİ */}
+                        <span onClick={() => setSeciliDukkan(opp.dukkan_adi)} className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px] inline-block cursor-pointer hover:bg-orange-200 transition-colors">🏪 {opp.dukkan_adi || "FırsatGo Esnafı"}</span>
                         <span className="bg-amber-100 text-amber-600 px-2 py-1 rounded-full text-[10px] font-black flex items-center gap-1 shadow-sm">⭐ {ortalamaPuan}</span>
                       </div>
-                      <span className="text-[10px] font-bold text-slate-400 px-1">{opp.kategori || 'Yemek'}</span>
+                      
+                      {/* YENİ: MESAFE ETİKETİ GÖRÜNÜMÜ */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400 px-1">{opp.kategori || 'Yemek'}</span>
+                        {mesafeMetni && ( <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md flex items-center gap-1">📍 {mesafeMetni}</span> )}
+                      </div>
+
                     </div>
-                    <button onClick={() => handleShare(opp)} className="absolute top-6 right-8 bg-green-100 text-green-600 p-3 rounded-2xl hover:bg-green-500 hover:text-white transition-all shadow-sm group">
-                      <span className="text-xl group-hover:animate-bounce inline-block">💬</span>
-                    </button>
+                    <button onClick={() => handleShare(opp)} className="absolute top-6 right-8 bg-green-100 text-green-600 p-3 rounded-2xl hover:bg-green-500 hover:text-white transition-all shadow-sm group"><span className="text-xl group-hover:animate-bounce inline-block">💬</span></button>
                   </div>
 
                   <h3 className={`text-2xl font-black leading-tight mb-4 pr-12 ${tukendiMi ? 'text-slate-400' : 'text-slate-800'}`}>{opp.baslik}</h3>
@@ -268,9 +292,7 @@ export default function HomePage() {
                   <div className="flex items-center justify-between pt-6 border-t border-slate-50">
                     <div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{tukendiMi ? 'STOK BİTTİ' : `KALAN STOK: ${opp.kalan_stok}`}</p>
-                      <div className="flex gap-1">
-                        {[...Array(5)].map((_, i) => (<div key={i} className={`h-1.5 w-6 rounded-full ${tukendiMi ? 'bg-slate-200' : (i < yuzdeKalan ? 'bg-emerald-500' : 'bg-slate-100')}`}></div>))}
-                      </div>
+                      <div className="flex gap-1">{[...Array(5)].map((_, i) => (<div key={i} className={`h-1.5 w-6 rounded-full ${tukendiMi ? 'bg-slate-200' : (i < yuzdeKalan ? 'bg-emerald-500' : 'bg-slate-100')}`}></div>))}</div>
                     </div>
                     <button onClick={() => handleYakala(opp)} disabled={tukendiMi || processingId === opp.id} className={`px-6 py-3 rounded-2xl font-black text-xs tracking-tighter transition-all ${tukendiMi ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : processingId === opp.id ? 'bg-orange-300 text-white animate-pulse' : 'bg-slate-900 text-white hover:bg-orange-600 shadow-lg shadow-slate-200 active:scale-95'}`}>
                       {processingId === opp.id ? 'BEKLEYİN...' : sureDoldu ? 'SÜRE BİTTİ' : tukendiMi ? 'TÜKENDİ' : 'FIRSATI YAKALA'}
@@ -325,9 +347,7 @@ export default function HomePage() {
             </div>
             <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar bg-white flex-1">
               <h4 className="font-black text-slate-400 uppercase tracking-widest text-xs mb-4">Aldığım Kodlar</h4>
-              {myOrders.length === 0 ? (
-                <div className="text-center text-slate-400 py-10 font-medium">Henüz hiç indirim kodu almadınız.</div>
-              ) : (
+              {myOrders.length === 0 ? ( <div className="text-center text-slate-400 py-10 font-medium">Henüz hiç indirim kodu almadınız.</div> ) : (
                 myOrders.map(order => {
                   const siparisBitis = new Date(order.son_kullanma_zamani).getTime();
                   const kalanSaniye = Math.floor((siparisBitis - now) / 1000);
@@ -339,45 +359,18 @@ export default function HomePage() {
                   else if (order.durum === 'iptal' || siparisSuresiDoldu) durumGorunumu = "bg-red-50 border-red-100 opacity-60";
                   else durumGorunumu = "bg-orange-50 border-orange-300 shadow-md";
 
-                  // YENİ: BU SİPARİŞE PUAN VERİLMİŞ Mİ KONTROLÜ
                   const hasRated = degerlendirmeler.some(r => r.siparis_id === order.id);
 
                   return (
                     <div key={order.id} className={`border-2 rounded-3xl p-5 relative overflow-hidden transition-all ${durumGorunumu}`}>
                       <div className="flex justify-between items-start mb-2">
                         <p className="text-xs font-black text-slate-500 uppercase">{order.opportunities?.dukkan_adi}</p>
-                        {order.durum === 'kullanildi' ? (
-                          <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md">KULLANILDI ✔️</span>
-                        ) : order.durum === 'iptal' || siparisSuresiDoldu ? (
-                          <span className="text-[10px] font-black text-red-600 bg-red-100 px-2 py-1 rounded-md">SÜRE DOLDU ❌</span>
-                        ) : (
-                          <span className="text-[10px] font-black text-orange-600 bg-orange-100 px-2 py-1 rounded-md flex items-center gap-1">
-                            <span className="animate-pulse">⏳</span> KALAN: {dk}:{sn}
-                          </span>
-                        )}
+                        {order.durum === 'kullanildi' ? ( <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md">KULLANILDI ✔️</span> ) : order.durum === 'iptal' || siparisSuresiDoldu ? ( <span className="text-[10px] font-black text-red-600 bg-red-100 px-2 py-1 rounded-md">SÜRE DOLDU ❌</span> ) : ( <span className="text-[10px] font-black text-orange-600 bg-orange-100 px-2 py-1 rounded-md flex items-center gap-1"><span className="animate-pulse">⏳</span> KALAN: {dk}:{sn}</span> )}
                       </div>
                       <h4 className="font-bold text-slate-800 text-sm mb-3">{order.opportunities?.baslik}</h4>
-                      
-                      {/* SADECE BEKLEYEN KODLAR İÇİN KODU GÖSTER */}
-                      {order.durum === 'bekliyor' && !siparisSuresiDoldu && (
-                        <div className="bg-white/80 border border-slate-200 rounded-2xl p-3 text-center">
-                          <span className="text-2xl font-black tracking-widest text-orange-600">{order.kod}</span>
-                        </div>
-                      )}
-
-                      {/* YENİ: KULLANILDI İSE PUAN VER BUTONU ÇIKAR */}
-                      {order.durum === 'kullanildi' && !hasRated && (
-                        <button 
-                          onClick={() => { setSelectedOrderForRating(order); setRatingModalOpen(true); }}
-                          className="w-full mt-2 bg-amber-100 text-amber-600 font-black py-2 rounded-xl text-xs hover:bg-amber-500 hover:text-white transition-all shadow-sm"
-                        >
-                          ⭐ ESNAFA PUAN VER
-                        </button>
-                      )}
-                      {order.durum === 'kullanildi' && hasRated && (
-                         <div className="mt-2 text-center text-xs font-bold text-amber-500">Değerlendirmeniz için teşekkürler! ⭐</div>
-                      )}
-
+                      {order.durum === 'bekliyor' && !siparisSuresiDoldu && ( <div className="bg-white/80 border border-slate-200 rounded-2xl p-3 text-center"><span className="text-2xl font-black tracking-widest text-orange-600">{order.kod}</span></div> )}
+                      {order.durum === 'kullanildi' && !hasRated && ( <button onClick={() => { setSelectedOrderForRating(order); setRatingModalOpen(true); }} className="w-full mt-2 bg-amber-100 text-amber-600 font-black py-2 rounded-xl text-xs hover:bg-amber-500 hover:text-white transition-all shadow-sm">⭐ ESNAFA PUAN VER</button> )}
+                      {order.durum === 'kullanildi' && hasRated && ( <div className="mt-2 text-center text-xs font-bold text-amber-500">Değerlendirmeniz için teşekkürler! ⭐</div> )}
                     </div>
                   );
                 })
@@ -387,7 +380,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* YENİ: PUAN VERME MODALI */}
       {ratingModalOpen && selectedOrderForRating && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative text-center">
@@ -395,27 +387,14 @@ export default function HomePage() {
             <div className="text-5xl mb-4">⭐</div>
             <h2 className="text-2xl font-black text-slate-800 tracking-tight mb-2">Nasıl Buldun?</h2>
             <p className="text-slate-500 text-sm mb-6"><strong className="text-slate-800">{selectedOrderForRating.opportunities?.dukkan_adi}</strong> deneyimini puanla.</p>
-            
             <div className="flex justify-center gap-2 mb-8">
-              {[1, 2, 3, 4, 5].map(star => (
-                <button 
-                  key={star} 
-                  onClick={() => setRatingScore(star)}
-                  className={`text-4xl transition-all ${star <= ratingScore ? 'text-amber-400 scale-110' : 'text-slate-200 grayscale'}`}
-                >
-                  ★
-                </button>
-              ))}
+              {[1, 2, 3, 4, 5].map(star => ( <button key={star} onClick={() => setRatingScore(star)} className={`text-4xl transition-all ${star <= ratingScore ? 'text-amber-400 scale-110' : 'text-slate-200 grayscale'}`}>★</button> ))}
             </div>
-
-            <button onClick={submitRating} className="w-full bg-slate-900 text-white font-black py-4 rounded-[24px] shadow-xl text-lg hover:bg-amber-500 transition-all active:scale-95">
-              GÖNDER
-            </button>
+            <button onClick={submitRating} className="w-full bg-slate-900 text-white font-black py-4 rounded-[24px] shadow-xl text-lg hover:bg-amber-500 transition-all active:scale-95">GÖNDER</button>
           </div>
         </div>
       )}
 
-      {/* AUTH VE BAŞARILI KOD MODALLARI AYNEN KORUNDU */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative">
