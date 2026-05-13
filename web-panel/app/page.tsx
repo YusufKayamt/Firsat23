@@ -5,7 +5,6 @@ import { createClient } from "./utils/supabase/client";
 
 const supabase = createClient();
 
-// İki nokta arasındaki mesafeyi ölçen formül
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null;
   const R = 6371; 
@@ -54,34 +53,33 @@ export default function HomePage() {
     try {
       if (!isSilent) setLoading(true);
       
-      // 1. Önce SADECE fırsatları çekiyoruz (Hata riskini sıfırladık)
-      const { data: oppData, error: oppError } = await supabase.from("opportunities").select("*").eq("aktif_mi", true).order("olusturma_zamani", { ascending: false });
-      if (oppError) throw oppError;
+      // HATA ÇÖZÜMÜ BURADA: aktif_mi filtresini kaldırdık, ne varsa çekiyoruz.
+      const { data: oppData, error: oppError } = await supabase.from("opportunities").select("*").order("olusturma_zamani", { ascending: false });
+      if (oppError) console.error("Fırsat Çekme Hatası:", oppError);
 
-      // 2. Esnafların konumlarını çekiyoruz
       const { data: esnafData, error: esnafError } = await supabase.from("esnaflar").select("id, enlem, boylam");
+      if (esnafError) console.error("Esnaf Çekme Hatası:", esnafError);
       
-      // 3. Fırsatlarla esnaf konumlarını kod içinde güvenle birleştiriyoruz
       const birlesikData = (oppData || []).map(opp => {
         const dukkan = (esnafData || []).find(e => e.id === opp.esnaf_id);
-        return {
-          ...opp,
-          esnaflar: dukkan ? { enlem: dukkan.enlem, boylam: dukkan.boylam } : null
-        };
+        return { ...opp, esnaflar: dukkan ? { enlem: dukkan.enlem, boylam: dukkan.boylam } : null };
       });
 
       setOpportunities(birlesikData);
 
-      const { data: revs } = await supabase.from("degerlendirmeler").select("*");
+      const { data: revs, error: revError } = await supabase.from("degerlendirmeler").select("*");
+      if (revError) console.error("Değerlendirme Çekme Hatası:", revError);
       setDegerlendirmeler(revs || []);
-    } catch (e) { console.error("Vitrin hatası:", e); } 
+      
+    } catch (e) { console.error("Vitrin Genel Hatası:", e); } 
     finally { if (!isSilent) setLoading(false); }
   };
 
   const fetchMyOrders = async () => {
     if (!currentCustomer) return;
     try {
-      const { data } = await supabase.from("siparisler").select("*, opportunities(baslik, dukkan_adi, esnaf_id)").eq("musteri_id", currentCustomer.id).order("olusturma_zamani", { ascending: false });
+      const { data, error } = await supabase.from("siparisler").select("*, opportunities(baslik, dukkan_adi, esnaf_id)").eq("musteri_id", currentCustomer.id).order("olusturma_zamani", { ascending: false });
+      if (error) console.error("Sipariş Çekme Hatası", error);
       setMyOrders(data || []);
     } catch (e) { console.error(e); }
   };
@@ -233,7 +231,7 @@ export default function HomePage() {
           {kategoriler.map((kat) => ( <button key={kat} onClick={() => setSeciliKategori(kat)} className={`flex-none px-5 py-2.5 rounded-2xl font-black text-xs transition-all tracking-wider ${seciliKategori === kat ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>{kat}</button> ))}
         </div>
 
-        {loading ? ( <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic mt-4">VİTRİN HAZIRLANIYOR...</div> ) : filteredOpportunities.length === 0 ? ( <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400 mt-4">Aramanıza uygun fırsat bulunamadı. 🥨</div> ) : (
+        {loading ? ( <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic mt-4">VİTRİN HAZIRLANIYOR...</div> ) : filteredOpportunities.length === 0 ? ( <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400 mt-4">Şu an aktif fırsat bulunmuyor. 🥨</div> ) : (
           filteredOpportunities.map((opp) => {
             const bitis = new Date(opp.bitis_zamani).getTime();
             const kalanMilisaniye = bitis - now;
