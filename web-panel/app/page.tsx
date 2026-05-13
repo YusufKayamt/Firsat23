@@ -24,13 +24,17 @@ export default function HomePage() {
 
   const [seciliKategori, setSeciliKategori] = useState("Tümü");
   const kategoriler = ["Tümü", "Yemek", "Tatlı & İçecek", "Hizmet", "Diğer"];
-
   const [aramaKelimesi, setAramaKelimesi] = useState("");
   const [seciliDukkan, setSeciliDukkan] = useState<string | null>(null);
 
-  // YENİ: UYGULAMA İNDİRME (PWA) STATE'LERİ
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallBtn, setShowInstallBtn] = useState(false);
+
+  // YENİ: PUANLAMA SİSTEMİ STATE'LERİ
+  const [degerlendirmeler, setDegerlendirmeler] = useState<any[]>([]);
+  const [ratingModalOpen, setRatingModalOpen] = useState(false);
+  const [selectedOrderForRating, setSelectedOrderForRating] = useState<any>(null);
+  const [ratingScore, setRatingScore] = useState(5);
 
   const fetchPublicData = async (isSilent = false) => {
     try {
@@ -38,6 +42,10 @@ export default function HomePage() {
       const { data, error } = await supabase.from("opportunities").select("*").eq("aktif_mi", true).order("olusturma_zamani", { ascending: false });
       if (error) throw error;
       setOpportunities(data || []);
+
+      // TÜM PUANLARI ÇEKİYORUZ
+      const { data: revs } = await supabase.from("degerlendirmeler").select("*");
+      setDegerlendirmeler(revs || []);
     } catch (e) { console.error("Vitrin hatası:", e); } 
     finally { if (!isSilent) setLoading(false); }
   };
@@ -45,50 +53,39 @@ export default function HomePage() {
   const fetchMyOrders = async () => {
     if (!currentCustomer) return;
     try {
-      const { data } = await supabase.from("siparisler").select("*, opportunities(baslik, dukkan_adi)").eq("musteri_id", currentCustomer.id).order("olusturma_zamani", { ascending: false });
+      const { data } = await supabase.from("siparisler").select("*, opportunities(baslik, dukkan_adi, esnaf_id)").eq("musteri_id", currentCustomer.id).order("olusturma_zamani", { ascending: false });
       setMyOrders(data || []);
     } catch (e) { console.error(e); }
   };
 
-useEffect(() => {
+  useEffect(() => {
     fetchPublicData();
     const savedCustomer = localStorage.getItem("firsatgo_musteri");
     if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
 
     const timer = setInterval(() => setNow(Date.now()), 1000);
 
-    // YENİ: MOTORU ÇALIŞTIRMA KODU BURAYA EKLENDİ!
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').then(() => {
-        console.log("Motor çalıştı!");
-      });
+      navigator.serviceWorker.register('/sw.js').then(() => { console.log("Motor çalıştı!"); });
     }
 
-    // TARAYICININ İNDİRME İSTEĞİNİ YAKALAYAN KOD
     const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault(); 
-      setDeferredPrompt(e); 
-      setShowInstallBtn(true); 
+      e.preventDefault(); setDeferredPrompt(e); setShowInstallBtn(true); 
     };
-
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
     return () => {
-      clearInterval(timer);
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      clearInterval(timer); window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, []);
 
   useEffect(() => { if (showProfileModal) fetchMyOrders(); }, [showProfileModal]);
 
-  // YENİ: İNDİR BUTONUNA BASILINCA ÇALIŞAN FONKSİYON
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
-    deferredPrompt.prompt(); // İndirme sorusunu ekrana getir
+    deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setShowInstallBtn(false); // Kabul ederse butonu gizle
-    }
+    if (outcome === 'accepted') setShowInstallBtn(false);
     setDeferredPrompt(null);
   };
 
@@ -106,19 +103,15 @@ useEffect(() => {
         if (error || !data) throw new Error("Telefon veya şifre hatalı!");
         loggedInUser = data;
       }
-      
       setCurrentCustomer(loggedInUser);
       if (rememberMe) localStorage.setItem("firsatgo_musteri", JSON.stringify(loggedInUser));
       else localStorage.removeItem("firsatgo_musteri");
-      
       setShowAuthModal(false);
     } catch (err: any) { setAuthError(err.message); }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("firsatgo_musteri");
-    setCurrentCustomer(null);
-    setShowProfileModal(false);
+    localStorage.removeItem("firsatgo_musteri"); setCurrentCustomer(null); setShowProfileModal(false);
   };
 
   const handleYakala = async (opp: any) => {
@@ -130,9 +123,7 @@ useEffect(() => {
       const limit = opp.kisi_basi_limit || 1;
       const { data: userOrders } = await supabase.from("siparisler").select("id").eq("musteri_id", currentCustomer.id).eq("firsat_id", opp.id).neq("durum", "iptal");
       if (userOrders && userOrders.length >= limit) {
-        alert(`Bu fırsattan kişi başı en fazla ${limit} adet yararlanabilirsiniz!`);
-        setProcessingId(null);
-        return;
+        alert(`Bu fırsattan kişi başı en fazla ${limit} adet yararlanabilirsiniz!`); setProcessingId(null); return;
       }
 
       const yeniStok = opp.kalan_stok - 1;
@@ -154,6 +145,20 @@ useEffect(() => {
     window.open(`https://wa.me/?text=${encodeURIComponent(mesaj)}`, '_blank');
   };
 
+  // YENİ: PUAN GÖNDERME İŞLEMİ
+  const submitRating = async () => {
+    try {
+      await supabase.from("degerlendirmeler").insert([{
+        siparis_id: selectedOrderForRating.id,
+        esnaf_id: selectedOrderForRating.opportunities.esnaf_id,
+        musteri_id: currentCustomer.id,
+        puan: ratingScore
+      }]);
+      setRatingModalOpen(false);
+      fetchPublicData(true); // Puanları güncelle
+    } catch (error) { alert("Puan gönderilirken hata oluştu!"); }
+  };
+
   const filteredOpportunities = opportunities.filter(opp => {
     const kategoriUyumu = seciliKategori === "Tümü" || (opp.kategori || 'Yemek') === seciliKategori;
     const aramaUyumu = opp.baslik.toLowerCase().includes(aramaKelimesi.toLowerCase()) || (opp.dukkan_adi || "").toLowerCase().includes(aramaKelimesi.toLowerCase());
@@ -165,7 +170,6 @@ useEffect(() => {
       
       <div className="bg-orange-500 p-8 pb-20 rounded-b-[50px] shadow-2xl shadow-orange-100 text-center relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent"></div>
-        
         <div className="absolute top-4 right-6 z-20">
           {currentCustomer ? (
             <div onClick={() => setShowProfileModal(true)} className="flex flex-col items-end bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 text-white cursor-pointer hover:bg-white/20 transition-all shadow-lg">
@@ -176,52 +180,32 @@ useEffect(() => {
             <button onClick={() => setShowAuthModal(true)} className="bg-white text-orange-600 font-black px-5 py-2.5 rounded-2xl shadow-lg hover:scale-105 transition-transform text-sm">GİRİŞ YAP</button>
           )}
         </div>
-
         <div className="flex flex-col items-center justify-center mt-6">
           <div className="relative z-10 w-24 h-24 mb-4 bg-white rounded-full p-2 shadow-xl flex items-center justify-center">
               <img src="/icon.png" alt="FırsatGo Logo" className="w-full h-full object-contain rounded-full" />
           </div>
           <h1 className="text-4xl font-black text-white tracking-tighter mb-2 relative z-10">FIRSAT 23</h1>
           <p className="text-orange-100 font-bold uppercase tracking-widest text-xs relative z-10 mb-4">Elazığ'ın Anlık İndirim Vitrini</p>
-          
-          {/* YENİ: ŞIK İNDİRME BUTONU (Sadece tarayıcı izin verirse görünür) */}
           {showInstallBtn && (
             <button onClick={handleInstallClick} className="relative z-20 bg-slate-900 text-white font-black px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 hover:bg-slate-800 transition-all animate-bounce">
               <span className="text-xl">📱</span> UYGULAMAYI İNDİR
             </button>
           )}
-
         </div>
       </div>
 
       <div className="max-w-xl mx-auto px-6 -mt-12 space-y-6">
-        
         <div className="relative z-20">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <span className="text-xl">🔍</span>
-          </div>
-          <input 
-            type="text" 
-            placeholder="Lahmacun, kahve, fırın ara..." 
-            value={aramaKelimesi}
-            onChange={(e) => setAramaKelimesi(e.target.value)}
-            className="w-full bg-white border border-slate-100 shadow-xl rounded-3xl py-4 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-orange-500 transition-all"
-          />
+          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><span className="text-xl">🔍</span></div>
+          <input type="text" placeholder="Lahmacun, kahve, fırın ara..." value={aramaKelimesi} onChange={(e) => setAramaKelimesi(e.target.value)} className="w-full bg-white border border-slate-100 shadow-xl rounded-3xl py-4 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-orange-500 transition-all" />
         </div>
-
         <div className="bg-white p-3 rounded-3xl shadow-lg flex gap-2 overflow-x-auto scrollbar-hide border border-slate-100 relative z-20">
           {kategoriler.map((kat) => (
-            <button key={kat} onClick={() => setSeciliKategori(kat)} className={`flex-none px-5 py-2.5 rounded-2xl font-black text-xs transition-all tracking-wider ${seciliKategori === kat ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
-              {kat}
-            </button>
+            <button key={kat} onClick={() => setSeciliKategori(kat)} className={`flex-none px-5 py-2.5 rounded-2xl font-black text-xs transition-all tracking-wider ${seciliKategori === kat ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>{kat}</button>
           ))}
         </div>
 
-        {loading ? (
-          <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic mt-4">VİTRİN HAZIRLANIYOR...</div>
-        ) : filteredOpportunities.length === 0 ? (
-          <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400 mt-4">Aramanıza uygun fırsat bulunamadı. 🥨</div>
-        ) : (
+        {loading ? ( <div className="bg-white p-10 rounded-[40px] text-center font-black text-slate-300 animate-pulse italic mt-4">VİTRİN HAZIRLANIYOR...</div> ) : filteredOpportunities.length === 0 ? ( <div className="bg-white p-10 rounded-[40px] text-center shadow-sm border border-slate-100 font-bold text-slate-400 mt-4">Aramanıza uygun fırsat bulunamadı. 🥨</div> ) : (
           filteredOpportunities.map((opp) => {
             const bitis = new Date(opp.bitis_zamani).getTime();
             const kalanMilisaniye = bitis - now;
@@ -233,6 +217,10 @@ useEffect(() => {
             const dakika = Math.floor((Math.max(0, kalanMilisaniye) % (1000 * 60 * 60)) / (1000 * 60));
             const saniye = Math.floor((Math.max(0, kalanMilisaniye) % (1000 * 60)) / 1000);
             const zamanMetni = sureDoldu ? "SÜRE BİTTİ" : `${saat.toString().padStart(2, '0')}:${dakika.toString().padStart(2, '0')}:${saniye.toString().padStart(2, '0')}`;
+
+            // YENİ: DÜKKAN PUANI HESAPLAMA
+            const dukkanPuanlari = degerlendirmeler.filter(r => r.esnaf_id === opp.esnaf_id);
+            const ortalamaPuan = dukkanPuanlari.length > 0 ? (dukkanPuanlari.reduce((acc, curr) => acc + curr.puan, 0) / dukkanPuanlari.length).toFixed(1) : "Yeni";
 
             return (
               <div key={opp.id} className={`bg-white rounded-[40px] shadow-xl overflow-hidden border-2 transition-all duration-300 relative ${tukendiMi ? 'border-slate-100 opacity-75' : 'border-white hover:-translate-y-1 shadow-slate-200/50'}`}>
@@ -250,7 +238,6 @@ useEffect(() => {
                     )}
                   </div>
                 )}
-
                 <div className="p-8 relative">
                   {!opp.foto_url && (
                     <div className="absolute top-6 right-8 bg-slate-100 text-slate-800 font-black px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm">
@@ -261,16 +248,13 @@ useEffect(() => {
 
                   <div className="flex justify-between items-start mb-4 pr-24">
                     <div className="flex flex-col gap-1">
-                      <span 
-                        onClick={() => setSeciliDukkan(opp.dukkan_adi)}
-                        className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px] inline-block cursor-pointer hover:bg-orange-200 transition-colors"
-                        title="Dükkanın diğer fırsatlarını gör"
-                      >
-                        🏪 {opp.dukkan_adi || "FırsatGo Esnafı"}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span onClick={() => setSeciliDukkan(opp.dukkan_adi)} className="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest truncate max-w-[150px] inline-block cursor-pointer hover:bg-orange-200 transition-colors" title="Dükkanın diğer fırsatlarını gör">🏪 {opp.dukkan_adi || "FırsatGo Esnafı"}</span>
+                        {/* YENİ: YILDIZ ETİKETİ EKLENDİ */}
+                        <span className="bg-amber-100 text-amber-600 px-2 py-1 rounded-full text-[10px] font-black flex items-center gap-1 shadow-sm">⭐ {ortalamaPuan}</span>
+                      </div>
                       <span className="text-[10px] font-bold text-slate-400 px-1">{opp.kategori || 'Yemek'}</span>
                     </div>
-                    
                     <button onClick={() => handleShare(opp)} className="absolute top-6 right-8 bg-green-100 text-green-600 p-3 rounded-2xl hover:bg-green-500 hover:text-white transition-all shadow-sm group">
                       <span className="text-xl group-hover:animate-bounce inline-block">💬</span>
                     </button>
@@ -306,13 +290,11 @@ useEffect(() => {
               <h3 className="text-xl font-black uppercase tracking-tight">🏪 Dükkan Vitrini</h3>
               <button onClick={() => setSeciliDukkan(null)} className="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/20">✕</button>
             </div>
-            
             <div className="p-6 border-b border-slate-100 bg-orange-50 text-center">
               <div className="w-16 h-16 bg-white text-orange-500 rounded-full flex items-center justify-center text-3xl font-black mx-auto mb-2 shadow-sm">{seciliDukkan.charAt(0)}</div>
               <h2 className="text-2xl font-black text-slate-800">{seciliDukkan}</h2>
               <p className="text-orange-600 font-bold text-xs uppercase tracking-widest mt-1">Tüm Aktif Fırsatları</p>
             </div>
-
             <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar bg-slate-50 flex-1">
               {opportunities.filter(o => o.dukkan_adi === seciliDukkan).map(opp => (
                 <div key={opp.id} className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex justify-between items-center">
@@ -357,6 +339,9 @@ useEffect(() => {
                   else if (order.durum === 'iptal' || siparisSuresiDoldu) durumGorunumu = "bg-red-50 border-red-100 opacity-60";
                   else durumGorunumu = "bg-orange-50 border-orange-300 shadow-md";
 
+                  // YENİ: BU SİPARİŞE PUAN VERİLMİŞ Mİ KONTROLÜ
+                  const hasRated = degerlendirmeler.some(r => r.siparis_id === order.id);
+
                   return (
                     <div key={order.id} className={`border-2 rounded-3xl p-5 relative overflow-hidden transition-all ${durumGorunumu}`}>
                       <div className="flex justify-between items-start mb-2">
@@ -372,9 +357,27 @@ useEffect(() => {
                         )}
                       </div>
                       <h4 className="font-bold text-slate-800 text-sm mb-3">{order.opportunities?.baslik}</h4>
-                      <div className="bg-white/80 border border-slate-200 rounded-2xl p-3 text-center">
-                         <span className={`text-2xl font-black tracking-widest ${order.durum === 'bekliyor' && !siparisSuresiDoldu ? 'text-orange-600' : 'text-slate-400 line-through'}`}>{order.kod}</span>
-                      </div>
+                      
+                      {/* SADECE BEKLEYEN KODLAR İÇİN KODU GÖSTER */}
+                      {order.durum === 'bekliyor' && !siparisSuresiDoldu && (
+                        <div className="bg-white/80 border border-slate-200 rounded-2xl p-3 text-center">
+                          <span className="text-2xl font-black tracking-widest text-orange-600">{order.kod}</span>
+                        </div>
+                      )}
+
+                      {/* YENİ: KULLANILDI İSE PUAN VER BUTONU ÇIKAR */}
+                      {order.durum === 'kullanildi' && !hasRated && (
+                        <button 
+                          onClick={() => { setSelectedOrderForRating(order); setRatingModalOpen(true); }}
+                          className="w-full mt-2 bg-amber-100 text-amber-600 font-black py-2 rounded-xl text-xs hover:bg-amber-500 hover:text-white transition-all shadow-sm"
+                        >
+                          ⭐ ESNAFA PUAN VER
+                        </button>
+                      )}
+                      {order.durum === 'kullanildi' && hasRated && (
+                         <div className="mt-2 text-center text-xs font-bold text-amber-500">Değerlendirmeniz için teşekkürler! ⭐</div>
+                      )}
+
                     </div>
                   );
                 })
@@ -384,6 +387,35 @@ useEffect(() => {
         </div>
       )}
 
+      {/* YENİ: PUAN VERME MODALI */}
+      {ratingModalOpen && selectedOrderForRating && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative text-center">
+            <button onClick={() => setRatingModalOpen(false)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-800 text-xl font-bold">✕</button>
+            <div className="text-5xl mb-4">⭐</div>
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight mb-2">Nasıl Buldun?</h2>
+            <p className="text-slate-500 text-sm mb-6"><strong className="text-slate-800">{selectedOrderForRating.opportunities?.dukkan_adi}</strong> deneyimini puanla.</p>
+            
+            <div className="flex justify-center gap-2 mb-8">
+              {[1, 2, 3, 4, 5].map(star => (
+                <button 
+                  key={star} 
+                  onClick={() => setRatingScore(star)}
+                  className={`text-4xl transition-all ${star <= ratingScore ? 'text-amber-400 scale-110' : 'text-slate-200 grayscale'}`}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+
+            <button onClick={submitRating} className="w-full bg-slate-900 text-white font-black py-4 rounded-[24px] shadow-xl text-lg hover:bg-amber-500 transition-all active:scale-95">
+              GÖNDER
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* AUTH VE BAŞARILI KOD MODALLARI AYNEN KORUNDU */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative">
@@ -397,9 +429,7 @@ useEffect(() => {
               <button onClick={() => {setAuthMode('register'); setAuthError("");}} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${authMode === 'register' ? 'bg-white text-orange-500 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Kayıt Ol</button>
             </div>
             <form onSubmit={handleAuth} className="space-y-4">
-              {authMode === 'register' && (
-                <input required placeholder="Adınız Soyadınız" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.ad_soyad} onChange={(e) => setAuthForm({...authForm, ad_soyad: e.target.value})} />
-              )}
+              {authMode === 'register' && ( <input required placeholder="Adınız Soyadınız" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.ad_soyad} onChange={(e) => setAuthForm({...authForm, ad_soyad: e.target.value})} /> )}
               <input required type="tel" placeholder="Telefon Numarası" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.telefon} onChange={(e) => setAuthForm({...authForm, telefon: e.target.value})} />
               <input required type="password" placeholder="Şifre" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold outline-none focus:border-orange-500 transition-all" value={authForm.sifre} onChange={(e) => setAuthForm({...authForm, sifre: e.target.value})} />
               <div className="flex items-center gap-2 px-2 py-1">
@@ -425,9 +455,7 @@ useEffect(() => {
               const sn = (Math.max(0, kalanSureSaniye) % 60).toString().padStart(2, '0');
               return (
                 <>
-                  <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl ${kodSureDoldu ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'}`}>
-                    {kodSureDoldu ? '⏰' : '🎉'}
-                  </div>
+                  <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl ${kodSureDoldu ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'}`}>{kodSureDoldu ? '⏰' : '🎉'}</div>
                   <h2 className="text-2xl font-black text-slate-800 mb-2">Fırsatı Kaptın!</h2>
                   {kodSureDoldu ? (
                     <div className="bg-red-50 border-2 border-red-200 rounded-3xl p-6 mb-6">
@@ -437,12 +465,8 @@ useEffect(() => {
                   ) : (
                     <>
                       <p className="text-slate-500 font-medium mb-4"><strong className="text-slate-800">{successCode.baslik}</strong> için kodun hazır. Kasada bu kodu göster:</p>
-                      <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl p-6 mb-4">
-                        <span className="text-4xl font-black text-orange-600 tracking-widest">{successCode.kod}</span>
-                      </div>
-                      <div className="bg-orange-50 text-orange-600 font-black px-4 py-3 rounded-2xl flex items-center justify-center gap-2 mb-6">
-                        <span className="animate-pulse">⏳</span> Geçerlilik Süresi: {dk}:{sn}
-                      </div>
+                      <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl p-6 mb-4"><span className="text-4xl font-black text-orange-600 tracking-widest">{successCode.kod}</span></div>
+                      <div className="bg-orange-50 text-orange-600 font-black px-4 py-3 rounded-2xl flex items-center justify-center gap-2 mb-6"><span className="animate-pulse">⏳</span> Geçerlilik Süresi: {dk}:{sn}</div>
                     </>
                   )}
                   <button onClick={() => setSuccessCode(null)} className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-slate-800 transition-colors">KAPAT VE VİTRİNE DÖN</button>
