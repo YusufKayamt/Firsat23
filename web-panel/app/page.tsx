@@ -5,6 +5,7 @@ import { createClient } from "./utils/supabase/client";
 
 const supabase = createClient();
 
+// Yardımcı Fonksiyonlar
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null;
   const R = 6371; 
@@ -43,14 +44,22 @@ export default function HomePage() {
   const [isCustomerSettingsOpen, setIsCustomerSettingsOpen] = useState(false);
   const [customerSettingsForm, setCustomerSettingsForm] = useState({ ad_soyad: "", telefon: "", sifre: "" });
 
-  // 🛠️ BURADAYDI EKSİK OLAN!
+  // 🛡️ EKSİK OLAN FONKSİYONLARIN TANIMLARI
   const requestLocation = () => {
     if (navigator.geolocation) {
        navigator.geolocation.getCurrentPosition(
          (pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }), 
-         () => alert("Konum izni vermen gerekiyor.")
+         () => console.warn("Konum izni alınamadı.")
        );
     }
+  };
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setShowInstallBtn(false);
+    setDeferredPrompt(null);
   };
 
   const fetchPublicData = async (isSilent = false) => {
@@ -71,14 +80,15 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchPublicData();
-    const savedCustomer = localStorage.getItem("firsatgo_musteri");
-    if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
-    
-    // Konumu otomatik al
     requestLocation();
+    
+    // PWA Kurulum Promptu
+    const handleBeforeInstallPrompt = (e: any) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBtn(true); };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
     const timer = setInterval(() => setNow(Date.now()), 1000);
-
+    
+    // Realtime Aboneliği
     const subscription = supabase
       .channel('public:opportunities')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'opportunities' }, (payload) => {
@@ -88,8 +98,15 @@ export default function HomePage() {
       })
       .subscribe();
 
-    return () => { clearInterval(timer); supabase.removeChannel(subscription); };
+    return () => { 
+        clearInterval(timer); 
+        supabase.removeChannel(subscription);
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
   }, []);
+
+  // ... (Geri kalan handleAuth, handleYakala, return JSX vb. kısımları olduğu gibi tutabilirsin)
+  // Sadece yukarıdaki kısmın doğru olduğundan emin ol, hatayı bu kısım veriyordu.
 
   // ... (Kodun geri kalanını değiştirmene gerek yok, aynen yapıştırabilirsin.)
   // handleYakala, handleAuth, handleShare vb. fonksiyonların zaten vardı, 
