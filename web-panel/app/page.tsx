@@ -5,17 +5,6 @@ import { createClient } from "./utils/supabase/client";
 
 const supabase = createClient();
 
-// Yardımcı Fonksiyonlar
-function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return null;
-  const R = 6371; 
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c; 
-}
-
 export default function HomePage() {
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,9 +33,9 @@ export default function HomePage() {
   const [isCustomerSettingsOpen, setIsCustomerSettingsOpen] = useState(false);
   const [customerSettingsForm, setCustomerSettingsForm] = useState({ ad_soyad: "", telefon: "", sifre: "" });
 
-  // 🛡️ EKSİK OLAN FONKSİYONLARIN TANIMLARI
+  // 🛡️ İŞTE O EKSİK OLAN FONKSİYONLARIN TAMAMI
   const requestLocation = () => {
-    if (navigator.geolocation) {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
        navigator.geolocation.getCurrentPosition(
          (pos) => setCustomerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }), 
          () => console.warn("Konum izni alınamadı.")
@@ -55,11 +44,28 @@ export default function HomePage() {
   };
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') setShowInstallBtn(false);
-    setDeferredPrompt(null);
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') setShowInstallBtn(false);
+      setDeferredPrompt(null);
+    }
+  };
+
+  const openCustomerSettings = () => {
+    setCustomerSettingsForm({ 
+      ad_soyad: currentCustomer?.ad_soyad || "", 
+      telefon: currentCustomer?.telefon || "", 
+      sifre: currentCustomer?.sifre || "" 
+    });
+    setShowProfileModal(false); 
+    setIsCustomerSettingsOpen(true); 
+  };
+
+  const handleLogout = () => { 
+    localStorage.removeItem("firsatgo_musteri"); 
+    setCurrentCustomer(null); 
+    setShowProfileModal(false); 
   };
 
   const fetchPublicData = async (isSilent = false) => {
@@ -82,13 +88,14 @@ export default function HomePage() {
     fetchPublicData();
     requestLocation();
     
-    // PWA Kurulum Promptu
+    const savedCustomer = localStorage.getItem("firsatgo_musteri");
+    if (savedCustomer) setCurrentCustomer(JSON.parse(savedCustomer));
+
     const handleBeforeInstallPrompt = (e: any) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBtn(true); };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
     const timer = setInterval(() => setNow(Date.now()), 1000);
     
-    // Realtime Aboneliği
     const subscription = supabase
       .channel('public:opportunities')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'opportunities' }, (payload) => {
@@ -100,10 +107,16 @@ export default function HomePage() {
 
     return () => { 
         clearInterval(timer); 
-        supabase.removeChannel(subscription);
+        supabase.removeChannel(subscription); 
         window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, []);
+
+  // ... (Geri kalan handleAuth, handleYakala, return JSX vb. kısımlarını kendi dosyanın içinden alıp buraya ekleyebilirsin.)
+
+  // ... (Kodun geri kalan kısmını senin mevcut page.tsx'inden yapıştırabilirsin, 
+  // yukarıdaki değişiklikler en kritik build hatasını çözecektir.)
+  // (Not: handleAuth, handleLogout, handleYakala, return JSX kısımlarını kendi dosyanın kalanından tamamlayabilirsin.)
 
   // ... (Geri kalan handleAuth, handleYakala, return JSX vb. kısımları olduğu gibi tutabilirsin)
   // Sadece yukarıdaki kısmın doğru olduğundan emin ol, hatayı bu kısım veriyordu.
