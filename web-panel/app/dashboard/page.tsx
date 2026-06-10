@@ -29,7 +29,6 @@ export default function DashboardPage() {
 
   const [now, setNow] = useState(Date.now());
 
-  // YENİ: AYARLAR STATE'LERİ
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsForm, setSettingsForm] = useState({ dukkan_adi: "", telefon: "", sifre: "" });
 
@@ -158,7 +157,6 @@ export default function DashboardPage() {
     }
   };
 
-  // YENİ: AYARLARI KAYDETME FONKSİYONU
   const handleSettingsSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -182,6 +180,29 @@ export default function DashboardPage() {
     setSettingsForm({ dukkan_adi: currentUser.dukkan_adi, telefon: currentUser.telefon, sifre: currentUser.sifre });
     setIsSettingsOpen(true);
   };
+
+  // 🔥 GRAFİK VERİSİ HESAPLAMA (Tıpkı Mobildeki Gibi) 🔥
+  const kullanilmisSiparisler = orders.filter(o => o.durum === 'kullanildi');
+  const toplamCiro = kullanilmisSiparisler.reduce((acc, o) => acc + (o.opportunities?.indirimli_fiyat || 0), 0);
+
+  const getGrafikVerisi = () => {
+    const istatistikler: { [key: string]: { adet: number, ciro: number } } = {};
+    kullanilmisSiparisler.forEach(o => {
+      const baslik = o.opportunities?.baslik || 'Diğer';
+      const fiyat = o.opportunities?.indirimli_fiyat || 0;
+      if (!istatistikler[baslik]) istatistikler[baslik] = { adet: 0, ciro: 0 };
+      istatistikler[baslik].adet += 1;
+      istatistikler[baslik].ciro += fiyat;
+    });
+
+    return Object.keys(istatistikler).map(key => ({
+      firsatBaslik: key,
+      ...istatistikler[key]
+    })).sort((a, b) => b.ciro - a.ciro).slice(0, 3);
+  };
+
+  const grafikVerisi = getGrafikVerisi();
+  const enYuksekCiro = Math.max(...grafikVerisi.map(g => g.ciro), 1);
 
   if (!currentUser) {
     return (
@@ -215,7 +236,6 @@ export default function DashboardPage() {
   }
 
   const bekleyenSiparisler = orders.filter(o => o.durum === 'bekliyor');
-  const sureSecenekleri = [0.5, 1, 1.5, 2, 3, 5, 12, 24]; 
 
   return (
     <div className="p-4 sm:p-8 bg-slate-50 min-h-screen font-sans text-slate-900 pb-24">
@@ -229,36 +249,66 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center justify-center gap-2 w-full sm:w-auto">
           <button onClick={() => { setEditingId(null); setImageFile(null); setFormData({baslik:"", normal_fiyat:"", indirimli_fiyat:"", stok:"", foto_url:"", sure_saat:"24", kisi_basi_limit:"1", kategori:"Yemek"}); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-orange-200 transition-all active:scale-95 h-12 text-sm whitespace-nowrap">+ YENİ FIRSAT</button>
-          
-          {/* YENİ: AYARLAR BUTONU */}
           <button onClick={openSettings} className="flex-none bg-slate-100 text-slate-600 px-4 py-3 rounded-2xl font-black hover:bg-slate-200 transition-all h-12 text-xl" title="Profil Ayarları">⚙️</button>
-          
           <button onClick={handleLogout} className="flex-none bg-slate-900 text-white px-6 py-3 rounded-2xl font-black hover:bg-slate-800 transition-all h-12 text-sm whitespace-nowrap">ÇIKIŞ</button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:-translate-y-1 transition-transform">
           <span className="text-3xl mb-2">💸</span>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Bugünkü Kazanç</p>
           <p className="text-2xl font-black text-emerald-500">{gunlukKazanc} ₺</p>
         </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:-translate-y-1 transition-transform">
           <span className="text-3xl mb-2">🤝</span>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Kullanılan Kod</p>
           <p className="text-2xl font-black text-orange-500">{gunlukKullanim}</p>
         </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:-translate-y-1 transition-transform">
           <span className="text-3xl mb-2">⭐</span>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Puanın</p>
           <p className="text-2xl font-black text-amber-500">{ortalamaPuan ? ortalamaPuan.toFixed(1) : '-'}</p>
         </div>
-        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:-translate-y-1 transition-transform">
           <span className="text-3xl mb-1">📍</span>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Dükkan Konumu</p>
           <button onClick={konumGuncelle} className={`text-[10px] px-3 py-2 rounded-xl font-black w-full transition-colors ${currentUser.enlem ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-900 text-white hover:bg-orange-500'}`}>
             {currentUser.enlem ? "KONUM KAYITLI ✔️" : "ŞU AN BURADAYIM"}
           </button>
+        </div>
+      </div>
+
+      {/* 🔥 İŞTE BURASI! YENİ GRAFİK ALANI 🔥 */}
+      <div className="bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-100 mb-8">
+        <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">📊 Fırsat Satış Analizi</h2>
+        <div className="flex flex-col md:flex-row gap-8">
+          <div className="md:w-1/3 bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex flex-col justify-center items-center text-center shadow-inner">
+             <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2">Tüm Zamanlar</p>
+             <p className="text-5xl font-black text-indigo-600">{toplamCiro} ₺</p>
+             <p className="text-sm font-bold text-indigo-500 mt-2">Toplam Ciro</p>
+          </div>
+          <div className="md:w-2/3 space-y-5 flex flex-col justify-center">
+            {grafikVerisi.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 font-bold bg-slate-50 rounded-3xl border border-slate-100">Henüz grafik oluşturulacak satış verisi yok.</div>
+            ) : (
+              grafikVerisi.map((item, index) => {
+                const yuzdeGenislik = `${(item.ciro / enYuksekCiro) * 100}%`;
+                const renkler = ['bg-orange-500', 'bg-blue-500', 'bg-pink-500'];
+                return (
+                  <div key={index} className="space-y-2">
+                    <div className="flex justify-between items-end text-sm">
+                      <span className="font-bold text-slate-600 truncate max-w-[60%]">{item.firsatBaslik}</span>
+                      <span className="text-slate-900 font-black text-base">{item.ciro} ₺ <span className="text-[10px] text-slate-400 font-bold ml-1">({item.adet} Satış)</span></span>
+                    </div>
+                    <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden shadow-inner">
+                      <div className={`h-full rounded-full ${renkler[index % renkler.length]} transition-all duration-1000 ease-out`} style={{ width: yuzdeGenislik }}></div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
 
@@ -374,7 +424,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* YENİ: AYARLAR MODALI */}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl relative">
